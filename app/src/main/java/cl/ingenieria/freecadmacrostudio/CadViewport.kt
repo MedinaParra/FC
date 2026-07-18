@@ -76,7 +76,35 @@ class CadViewport(context: Context) : View(context) {
     }
     private fun a(i:Int,n:Int,r:Float,z:Float,f:CadFeature):V3 { val q=2f*PI.toFloat()*i/n; return V3(f.x+cos(q)*r,f.y+sin(q)*r,z) }
     private fun cone(f:CadFeature,sel:Boolean):List<Face>{val n=28;val p0=(0 until n).map{a(it,n,f.a,f.z,f)};val p1=(0 until n).map{a(it,n,f.b,f.z+f.c,f)};val b=base(sel);val out=mutableListOf(Face(p1.reversed(),shade(b,1.1f)));for(i in 0 until n){val j=(i+1)%n;out+=Face(listOf(p0[i],p0[j],p1[j],p1[i]),shade(b,.7f+.3f*i/n))};return out}
-    private fun sphere(f:CadFeature,sel:Boolean):List<Face>{val out=mutableListOf<Face>();val n=20;val m=12;val b=base(sel);for(j in 0 until m){val p0=-PI/2+PI*j/m;val p1=-PI/2+PI*(j+1)/m;for(i in 0 until n){val t0=2*PI*i/n;val t1=2*PI*(i+1)/n;fun q(p:Double,t:Double)=V3(f.x+(f.a*cos(p)*cos(t)).toFloat(),f.y+(f.a*cos(p)*sin(t)).toFloat(),f.z+(f.a*sin(p)).toFloat());out+=Face(listOf(q(p0,t0),q(p0,t1),q(p1,t1),q(p1,t0)),shade(b,(.72+.35*(j.toFloat()/m)).toFloat()))}};return out}
+    private fun spherePoint(f: CadFeature, latitude: Double, longitude: Double) = V3(
+        f.x + (f.a * cos(latitude) * cos(longitude)).toFloat(),
+        f.y + (f.a * cos(latitude) * sin(longitude)).toFloat(),
+        f.z + (f.a * sin(latitude)).toFloat()
+    )
+    private fun sphere(f: CadFeature, sel: Boolean): List<Face> {
+        val out = mutableListOf<Face>()
+        val longitudeSegments = 20
+        val latitudeSegments = 12
+        val color = base(sel)
+        for (latitudeIndex in 0 until latitudeSegments) {
+            val latitude0 = -PI / 2 + PI * latitudeIndex / latitudeSegments
+            val latitude1 = -PI / 2 + PI * (latitudeIndex + 1) / latitudeSegments
+            for (longitudeIndex in 0 until longitudeSegments) {
+                val longitude0 = 2 * PI * longitudeIndex / longitudeSegments
+                val longitude1 = 2 * PI * (longitudeIndex + 1) / longitudeSegments
+                out += Face(
+                    listOf(
+                        spherePoint(f, latitude0, longitude0),
+                        spherePoint(f, latitude0, longitude1),
+                        spherePoint(f, latitude1, longitude1),
+                        spherePoint(f, latitude1, longitude0)
+                    ),
+                    shade(color, .72f + .35f * latitudeIndex / latitudeSegments)
+                )
+            }
+        }
+        return out
+    }
     private fun drawGrid(c:Canvas){val step=40f;for(i in -12..12){val a=project(V3(i*step,-480f,0f));val b=project(V3(i*step,480f,0f));c.drawLine(a.x,a.y,b.x,b.y,grid);val d=project(V3(-480f,i*step,0f));val e=project(V3(480f,i*step,0f));c.drawLine(d.x,d.y,e.x,e.y,grid)}}
     private fun drawAxis(c:Canvas){fun line(v:V3,color:Int,label:String){val o=project(V3(0f,0f,0f));val q=project(v);edge.color=color;edge.strokeWidth=4f;c.drawLine(o.x,o.y,q.x,q.y,edge);textPaint.color=color;c.drawText(label,q.x+5,q.y,textPaint)};line(V3(30f,0f,0f),Color.RED,"X");line(V3(0f,30f,0f),Color.rgb(0,150,70),"Y");line(V3(0f,0f,30f),Color.BLUE,"Z");edge.color=Color.rgb(55,65,72);edge.strokeWidth=1.5f}
     fun setView(name:String){when(name){"Frontal"->{yaw=0f;pitch=0f};"Superior"->{yaw=0f;pitch=PI.toFloat()/2};"Lateral"->{yaw=-PI.toFloat()/2;pitch=0f};else->{yaw=-.65f;pitch=.45f}};invalidate()}
