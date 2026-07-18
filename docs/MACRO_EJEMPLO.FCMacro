@@ -1,0 +1,14 @@
+# -*- coding: utf-8 -*-
+# Ejemplo de salida de FC Macro Studio
+import FreeCAD as App
+import Part
+
+doc = App.newDocument("PiezaEjemplo")
+cuerpo = Part.makeBox(50.0, 40.0, 25.0, App.Vector(0, 0, 0))
+taladro = Part.makeCylinder(6.0, 25.0, App.Vector(25, 20, 0))
+resultado = cuerpo.cut(taladro)
+obj = doc.addObject("PartDesign::Feature", "Resultado")
+obj.Shape = resultado
+doc.recompute()
+Gui.activeDocument().activeView().viewAxonometric()
+Gui.activeDocument().activeView().fitAll()
