@@ -42,4 +42,4 @@ Las operaciones se generan mediante `Part` y document objects estándar de FreeC
 
 ## Estado de compilación
 
-El APK se genera y valida automáticamente mediante GitHub Actions.
+El APK se genera y valida automáticamente mediante GitHub Actions (repositorio público).
