@@ -39,3 +39,7 @@ Cada envío a la rama `main` también genera automáticamente el artefacto
 5. En FreeCAD: **Macro > Macros… > Crear/Editar**, pegue o abra el `.FCMacro` y ejecútelo.
 
 Las operaciones se generan mediante `Part` y document objects estándar de FreeCAD.
+
+## Estado de compilación
+
+El APK se genera y valida automáticamente mediante GitHub Actions.
