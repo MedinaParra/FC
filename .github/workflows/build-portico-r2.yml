@@ -1,0 +1,84 @@
+name: Build Portico FreeCAD R2
+
+on:
+  push:
+    branches:
+      - build-portico-conexiones-r2
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-portico:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar FreeCAD y utilidades
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y freecad freecad-python3 zip python3-venv
+          (freecadcmd --version || FreeCADCmd --version || true)
+
+      - name: Generar pórtico y exportaciones CAD
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PORTICO_OUT: ${{ github.workspace }}/build/portico-r2
+        run: |
+          mkdir -p "$PORTICO_OUT"
+          FC_BIN="$(command -v freecadcmd || command -v FreeCADCmd)"
+          test -n "$FC_BIN"
+          "$FC_BIN" freecad_build/generar_portico_completo_conexiones_r2.py 2>&1 | tee "$PORTICO_OUT/FreeCAD_build.log"
+          test -s "$PORTICO_OUT/Portico_Dos_Aguas_Conexiones_R2.FCStd"
+          test -s "$PORTICO_OUT/Portico_Dos_Aguas_Conexiones_R2.step"
+          test -s "$PORTICO_OUT/Portico_Dos_Aguas_Conexiones_R2.iges"
+          test -s "$PORTICO_OUT/Portico_Dos_Aguas_Conexiones_R2.brep"
+
+      - name: Completar formatos de malla
+        continue-on-error: true
+        env:
+          PORTICO_OUT: ${{ github.workspace }}/build/portico-r2
+        run: |
+          python3 -m venv .mesh-venv
+          .mesh-venv/bin/pip install --upgrade pip
+          .mesh-venv/bin/pip install trimesh lxml networkx
+          .mesh-venv/bin/python - <<'PY'
+          import os
+          import trimesh
+          out=os.environ['PORTICO_OUT']
+          stem='Portico_Dos_Aguas_Conexiones_R2'
+          source=os.path.join(out,stem+'.stl')
+          if not os.path.exists(source):
+              source=os.path.join(out,stem+'.obj')
+          mesh=trimesh.load(source,force='mesh',process=False)
+          for ext in ('ply','off','3mf'):
+              path=os.path.join(out,stem+'.'+ext)
+              try:
+                  mesh.export(path)
+                  print(path,os.path.getsize(path))
+              except Exception as exc:
+                  print('No se pudo exportar',ext,exc)
+          PY
+
+      - name: Preparar macro y paquete
+        env:
+          PORTICO_OUT: ${{ github.workspace }}/build/portico-r2
+        run: |
+          cp freecad_build/generar_portico_completo_conexiones_r2.py "$PORTICO_OUT/generar_portico_completo_conexiones_r2.FCMacro"
+          cp freecad_build/generar_portico_completo_conexiones_r2.py "$PORTICO_OUT/generar_portico_completo_conexiones_r2.py"
+          cd "$PORTICO_OUT"
+          zip -9 -j Paquete_Portico_Dos_Aguas_Conexiones_R2.zip ./*
+          ls -lah
+
+      - name: Publicar artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: Portico-Dos-Aguas-Conexiones-R2
+          path: build/portico-r2/*
+          if-no-files-found: error
+          retention-days: 14
