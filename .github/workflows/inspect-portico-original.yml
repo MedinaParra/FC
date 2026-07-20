@@ -2,6 +2,8 @@ name: Inspect Original Portico STEP
 on:
   push:
     branches: [build-portico-perfiles-originales-r3]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
