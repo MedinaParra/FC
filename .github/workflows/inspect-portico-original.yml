@@ -1,0 +1,36 @@
+name: Inspect Original Portico STEP
+on:
+  push:
+    branches: [build-portico-perfiles-originales-r3]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FreeCAD
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y freecad freecad-python3 xz-utils
+      - name: Reconstruct exact uploaded STEP
+        run: |
+          mkdir -p build/r3
+          cat freecad_build/source_step_chunks/chunk_*.b64 | base64 -d | xz -d > build/r3/Portico_Avance.stp
+          sha256sum build/r3/Portico_Avance.stp | tee build/r3/SHA256_original.txt
+          test -s build/r3/Portico_Avance.stp
+      - name: Inspect in FreeCAD
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PORTICO_SOURCE: ${{ github.workspace }}/build/r3/Portico_Avance.stp
+          PORTICO_OUT: ${{ github.workspace }}/build/r3
+        run: |
+          FC_BIN="$(command -v freecadcmd || command -v FreeCADCmd)"
+          "$FC_BIN" freecad_build/inspect_portico_original.py 2>&1 | tee build/r3/FreeCAD_inspection.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Portico-Original-Inspection
+          path: build/r3/*
+          retention-days: 14
