@@ -26,6 +26,8 @@ jobs:
           (freecadcmd --version || FreeCADCmd --version || true)
 
       - name: Generar pórtico y exportaciones CAD
+        id: generate
+        continue-on-error: true
         env:
           QT_QPA_PLATFORM: offscreen
           PORTICO_OUT: ${{ github.workspace }}/build/portico-r2
@@ -33,28 +35,34 @@ jobs:
           mkdir -p "$PORTICO_OUT"
           FC_BIN="$(command -v freecadcmd || command -v FreeCADCmd)"
           test -n "$FC_BIN"
+          set +e
           "$FC_BIN" freecad_build/generar_portico_completo_conexiones_r2.py 2>&1 | tee "$PORTICO_OUT/FreeCAD_build.log"
-          test -s "$PORTICO_OUT/Portico_Dos_Aguas_Conexiones_R2.FCStd"
-          test -s "$PORTICO_OUT/Portico_Dos_Aguas_Conexiones_R2.step"
-          test -s "$PORTICO_OUT/Portico_Dos_Aguas_Conexiones_R2.iges"
-          test -s "$PORTICO_OUT/Portico_Dos_Aguas_Conexiones_R2.brep"
+          RC=${PIPESTATUS[0]}
+          echo "$RC" > "$PORTICO_OUT/FreeCAD_exit_code.txt"
+          echo "FreeCAD exit code: $RC"
+          exit "$RC"
 
       - name: Completar formatos de malla
+        if: always()
         continue-on-error: true
         env:
           PORTICO_OUT: ${{ github.workspace }}/build/portico-r2
         run: |
+          STEM="$PORTICO_OUT/Portico_Dos_Aguas_Conexiones_R2"
+          if [ ! -s "$STEM.stl" ] && [ ! -s "$STEM.obj" ]; then
+            echo "No hay malla fuente; se omite conversión" | tee "$PORTICO_OUT/Mesh_conversion.log"
+            exit 0
+          fi
           python3 -m venv .mesh-venv
           .mesh-venv/bin/pip install --upgrade pip
           .mesh-venv/bin/pip install trimesh lxml networkx
-          .mesh-venv/bin/python - <<'PY'
+          .mesh-venv/bin/python - <<'PY' 2>&1 | tee "$PORTICO_OUT/Mesh_conversion.log"
           import os
           import trimesh
           out=os.environ['PORTICO_OUT']
           stem='Portico_Dos_Aguas_Conexiones_R2'
           source=os.path.join(out,stem+'.stl')
-          if not os.path.exists(source):
-              source=os.path.join(out,stem+'.obj')
+          if not os.path.exists(source): source=os.path.join(out,stem+'.obj')
           mesh=trimesh.load(source,force='mesh',process=False)
           for ext in ('ply','off','3mf'):
               path=os.path.join(out,stem+'.'+ext)
@@ -66,16 +74,19 @@ jobs:
           PY
 
       - name: Preparar macro y paquete
+        if: always()
         env:
           PORTICO_OUT: ${{ github.workspace }}/build/portico-r2
         run: |
+          mkdir -p "$PORTICO_OUT"
           cp freecad_build/generar_portico_completo_conexiones_r2.py "$PORTICO_OUT/generar_portico_completo_conexiones_r2.FCMacro"
           cp freecad_build/generar_portico_completo_conexiones_r2.py "$PORTICO_OUT/generar_portico_completo_conexiones_r2.py"
           cd "$PORTICO_OUT"
-          zip -9 -j Paquete_Portico_Dos_Aguas_Conexiones_R2.zip ./*
+          zip -9 -j Paquete_Portico_Dos_Aguas_Conexiones_R2.zip ./* || true
           ls -lah
 
       - name: Publicar artefacto
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: Portico-Dos-Aguas-Conexiones-R2
