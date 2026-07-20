@@ -1,0 +1,85 @@
+name: Build Portico R3 Original Profiles
+on:
+  push:
+    branches: [build-portico-perfiles-originales-r3]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-r3:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download portable FreeCAD 1.1.1
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl xz-utils zip python3-venv libgl1 libegl1 libxkbcommon-x11-0
+          curl -L --fail --retry 5 --retry-delay 5 \
+            -o FreeCAD_1.1.1.AppImage \
+            https://github.com/FreeCAD/FreeCAD/releases/download/1.1.1/FreeCAD_1.1.1-Linux-x86_64-py311.AppImage
+          echo 'e2006138400b2fa85fa2e160e872d00767eb32964e85075830f7e198a3a876e1  FreeCAD_1.1.1.AppImage' | sha256sum -c -
+          chmod +x FreeCAD_1.1.1.AppImage
+          ./FreeCAD_1.1.1.AppImage --appimage-extract >/dev/null
+          FC_BIN="$(find "$GITHUB_WORKSPACE/squashfs-root" -type f \( -name FreeCADCmd -o -name freecadcmd \) | head -n 1)"
+          test -n "$FC_BIN"
+          echo "FC_BIN=$FC_BIN" >> "$GITHUB_ENV"
+          echo "FREECAD_LIB=$GITHUB_WORKSPACE/squashfs-root/usr/lib" >> "$GITHUB_ENV"
+          "$FC_BIN" --version
+      - name: Reconstruct exact uploaded STEP
+        run: |
+          set -euo pipefail
+          mkdir -p build/r3-final
+          cat freecad_build/source_step_chunks/chunk_*.b64 | base64 -d | xz -d > build/r3-final/Portico_Avance.stp
+          echo '4d074a678da4e83332e7f613f03165f157cd46f211ac922f42238e203827a183  build/r3-final/Portico_Avance.stp' | sha256sum -c -
+      - name: Generate corrected portico in FreeCAD
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PORTICO_SOURCE: ${{ github.workspace }}/build/r3-final/Portico_Avance.stp
+          PORTICO_OUT: ${{ github.workspace }}/build/r3-final
+        run: |
+          set -euo pipefail
+          export LD_LIBRARY_PATH="$FREECAD_LIB:${LD_LIBRARY_PATH:-}"
+          "$FC_BIN" freecad_build/generar_portico_perfiles_originales_r3.py 2>&1 | tee build/r3-final/FreeCAD_R3_build.log
+          grep -q 'ORIGINALES_INALTERADOS=True' build/r3-final/FreeCAD_R3_build.log
+          grep -q 'PERFILES_ORIGINALES_TODOS_INALTERADOS=True' build/r3-final/Validacion_Portico_Perfiles_Originales_R3.txt
+          grep -q 'OBJETOS_INVALIDOS=0' build/r3-final/Validacion_Portico_Perfiles_Originales_R3.txt
+          for ext in FCStd step stp iges igs brep stl obj; do
+            test -s "build/r3-final/Portico_Dos_Aguas_Perfiles_Originales_R3.$ext"
+          done
+      - name: Convert mesh formats
+        run: |
+          set -euo pipefail
+          python3 -m venv .mesh-r3
+          .mesh-r3/bin/pip install --upgrade pip
+          .mesh-r3/bin/pip install trimesh lxml networkx
+          .mesh-r3/bin/python - <<'PY'
+          import os, trimesh
+          out='build/r3-final'
+          stem='Portico_Dos_Aguas_Perfiles_Originales_R3'
+          src=os.path.join(out,stem+'.stl')
+          mesh=trimesh.load(src,force='mesh',process=False)
+          for ext in ('ply','off','3mf'):
+              p=os.path.join(out,stem+'.'+ext)
+              mesh.export(p)
+              assert os.path.getsize(p)>0, p
+              print(p,os.path.getsize(p))
+          PY
+      - name: Prepare macro and package
+        run: |
+          set -euo pipefail
+          cp freecad_build/generar_portico_perfiles_originales_r3.py build/r3-final/generar_portico_perfiles_originales_r3.py
+          cp freecad_build/generar_portico_perfiles_originales_r3.py build/r3-final/generar_portico_perfiles_originales_r3.FCMacro
+          cd build/r3-final
+          zip -9 -j Paquete_Portico_Dos_Aguas_Perfiles_Originales_R3.zip ./*
+          sha256sum Portico_Dos_Aguas_Perfiles_Originales_R3.FCStd Portico_Dos_Aguas_Perfiles_Originales_R3.step > SHA256_Salidas_R3.txt
+          ls -lah
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Portico-R3-Perfiles-Originales
+          path: build/r3-final/*
+          if-no-files-found: error
+          retention-days: 14

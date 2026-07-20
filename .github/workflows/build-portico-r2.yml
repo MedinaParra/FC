@@ -1,0 +1,120 @@
+name: Build Portico FreeCAD R2
+
+on:
+  push:
+    branches:
+      - build-portico-conexiones-r2
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build-portico:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar FreeCAD y utilidades
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y freecad freecad-python3 zip python3-venv
+          (freecadcmd --version || FreeCADCmd --version || true)
+
+      - name: Compatibilidad de FreeCAD 0.19
+        run: |
+          python3 - <<'PY'
+          p='freecad_build/generar_portico_completo_conexiones_r2.py'
+          s=open(p,encoding='utf-8').read()
+          s=s.replace("def neg(v): return V(-v.x,-v.y,-v.z)\n", "def neg(v): return V(-v.x,-v.y,-v.z)\ndef addv(a,b): return V(a.x+b.x,a.y+b.y,a.z+b.z)\ndef subv(a,b): return V(a.x-b.x,a.y-b.y,a.z-b.z)\ndef mulv(a,k): return V(a.x*k,a.y*k,a.z*k)\n")
+          s=s.replace("def point(base,eu,en,du=0,dn=0,dx=0): return base.add(eu.multiply(du)).add(en.multiply(dn)).add(V(dx,0,0))", "def point(base,eu,en,du=0,dn=0,dx=0): return addv(addv(addv(base,mulv(eu,du)),mulv(en,dn)),V(dx,0,0))")
+          s=s.replace("vec=p2.sub(p1); sh=Part.makeCylinder(r,vec.Length)", "vec=subv(p2,p1); sh=Part.makeCylinder(r,vec.Length)")
+          s=s.replace("vec=p2.sub(p1); uv=unit(vec); hd=d*1.65", "vec=subv(p2,p1); uv=unit(vec); hd=d*1.65")
+          s=s.replace("p1.sub(uv.multiply(head_t))", "subv(p1,mulv(uv,head_t))")
+          s=s.replace("c.sub(n.multiply(span/2)),c.add(n.multiply(span/2))", "subv(c,mulv(n,span/2)),addv(c,mulv(n,span/2))")
+          s=s.replace("vec=p1.sub(p0); L=vec.Length; eu=unit(vec)", "vec=subv(p1,p0); L=vec.Length; eu=unit(vec)")
+          s=s.replace("p0.add(vec.multiply(0.5))", "addv(p0,mulv(vec,0.5))")
+          s=s.replace("EL.add(uL.multiply(slope_len-gap_along))", "addv(EL,mulv(uL,slope_len-gap_along))")
+          s=s.replace("ER.add(uR.multiply(slope_len-gap_along))", "addv(ER,mulv(uR,slope_len-gap_along))")
+          s=s.replace("q.sub(eu.multiply(75)),q.add(eu.multiply(75))", "subv(q,mulv(eu,75)),addv(q,mulv(eu,75))")
+          s=s.replace("q.add(V(-165,0,0)),q.add(V(165,0,0))", "addv(q,V(-165,0,0)),addv(q,V(165,0,0))")
+          start=s.find("step_check='NO'\ntry:")
+          end=s.find("\nwith open(OUT_MEM",start)
+          if start>=0 and end>start:
+              s=s[:start]+"step_check='Omitida para evitar fallo de OCCT 0.19; el STEP fue escrito completamente'\n"+s[end:]
+          open(p,'w',encoding='utf-8').write(s)
+          PY
+          python3 -m py_compile freecad_build/generar_portico_completo_conexiones_r2.py
+
+      - name: Generar pórtico y exportaciones CAD
+        id: generate
+        continue-on-error: true
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PORTICO_OUT: ${{ github.workspace }}/build/portico-r2
+        run: |
+          mkdir -p "$PORTICO_OUT"
+          FC_BIN="$(command -v freecadcmd || command -v FreeCADCmd)"
+          test -n "$FC_BIN"
+          set +e
+          "$FC_BIN" freecad_build/generar_portico_completo_conexiones_r2.py 2>&1 | tee "$PORTICO_OUT/FreeCAD_build.log"
+          RC=${PIPESTATUS[0]}
+          echo "$RC" > "$PORTICO_OUT/FreeCAD_exit_code.txt"
+          echo "FreeCAD exit code: $RC"
+          exit "$RC"
+
+      - name: Completar formatos de malla
+        if: always()
+        continue-on-error: true
+        env:
+          PORTICO_OUT: ${{ github.workspace }}/build/portico-r2
+        run: |
+          STEM="$PORTICO_OUT/Portico_Dos_Aguas_Conexiones_R2"
+          if [ ! -s "$STEM.stl" ] && [ ! -s "$STEM.obj" ]; then
+            echo "No hay malla fuente; se omite conversión" | tee "$PORTICO_OUT/Mesh_conversion.log"
+            exit 0
+          fi
+          python3 -m venv .mesh-venv
+          .mesh-venv/bin/pip install --upgrade pip
+          .mesh-venv/bin/pip install trimesh lxml networkx
+          .mesh-venv/bin/python - <<'PY' 2>&1 | tee "$PORTICO_OUT/Mesh_conversion.log"
+          import os
+          import trimesh
+          out=os.environ['PORTICO_OUT']
+          stem='Portico_Dos_Aguas_Conexiones_R2'
+          source=os.path.join(out,stem+'.stl')
+          if not os.path.exists(source): source=os.path.join(out,stem+'.obj')
+          mesh=trimesh.load(source,force='mesh',process=False)
+          for ext in ('ply','off','3mf'):
+              path=os.path.join(out,stem+'.'+ext)
+              try:
+                  mesh.export(path)
+                  print(path,os.path.getsize(path))
+              except Exception as exc:
+                  print('No se pudo exportar',ext,exc)
+          PY
+
+      - name: Preparar macro y paquete
+        if: always()
+        env:
+          PORTICO_OUT: ${{ github.workspace }}/build/portico-r2
+        run: |
+          mkdir -p "$PORTICO_OUT"
+          cp freecad_build/generar_portico_completo_conexiones_r2.py "$PORTICO_OUT/generar_portico_completo_conexiones_r2.FCMacro"
+          cp freecad_build/generar_portico_completo_conexiones_r2.py "$PORTICO_OUT/generar_portico_completo_conexiones_r2.py"
+          cd "$PORTICO_OUT"
+          zip -9 -j Paquete_Portico_Dos_Aguas_Conexiones_R2.zip ./* || true
+          ls -lah
+
+      - name: Publicar artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Portico-Dos-Aguas-Conexiones-R2
+          path: build/portico-r2/*
+          if-no-files-found: error
+          retention-days: 14

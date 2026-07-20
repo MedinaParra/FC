@@ -1,0 +1,54 @@
+name: Inspect Original Portico STEP
+on:
+  push:
+    branches: [build-portico-perfiles-originales-r3]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download portable FreeCAD 1.1.1
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y curl xz-utils libgl1 libegl1 libxkbcommon-x11-0
+          curl -L --fail --retry 5 --retry-delay 5 \
+            -o FreeCAD_1.1.1.AppImage \
+            https://github.com/FreeCAD/FreeCAD/releases/download/1.1.1/FreeCAD_1.1.1-Linux-x86_64-py311.AppImage
+          echo 'e2006138400b2fa85fa2e160e872d00767eb32964e85075830f7e198a3a876e1  FreeCAD_1.1.1.AppImage' | sha256sum -c -
+          chmod +x FreeCAD_1.1.1.AppImage
+          ./FreeCAD_1.1.1.AppImage --appimage-extract >/dev/null
+          FC_BIN="$(find "$GITHUB_WORKSPACE/squashfs-root" -type f \( -name FreeCADCmd -o -name freecadcmd \) | head -n 1)"
+          test -n "$FC_BIN"
+          echo "FC_BIN=$FC_BIN" >> "$GITHUB_ENV"
+          echo "FREECAD_LIB=$GITHUB_WORKSPACE/squashfs-root/usr/lib" >> "$GITHUB_ENV"
+          "$FC_BIN" --version
+      - name: Reconstruct exact uploaded STEP
+        run: |
+          set -euo pipefail
+          mkdir -p build/r3
+          cat freecad_build/source_step_chunks/chunk_*.b64 | base64 -d | xz -d > build/r3/Portico_Avance.stp
+          sha256sum build/r3/Portico_Avance.stp | tee build/r3/SHA256_original.txt
+          echo '4d074a678da4e83332e7f613f03165f157cd46f211ac922f42238e203827a183  build/r3/Portico_Avance.stp' | sha256sum -c -
+      - name: Inspect in FreeCAD 1.1.1
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PORTICO_SOURCE: ${{ github.workspace }}/build/r3/Portico_Avance.stp
+          PORTICO_OUT: ${{ github.workspace }}/build/r3
+        run: |
+          set -euo pipefail
+          export LD_LIBRARY_PATH="$FREECAD_LIB:${LD_LIBRARY_PATH:-}"
+          "$FC_BIN" freecad_build/inspect_portico_original.py 2>&1 | tee build/r3/FreeCAD_inspection.log
+          test -s build/r3/Inspeccion_Portico_Original.txt
+          test -s build/r3/Portico_Avance_Importado.FCStd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Portico-Original-Inspection
+          path: build/r3/*
+          retention-days: 14
