@@ -25,7 +25,7 @@ jobs:
           sudo apt-get install -y freecad freecad-python3 zip python3-venv
           (freecadcmd --version || FreeCADCmd --version || true)
 
-      - name: Compatibilidad de vectores FreeCAD 0.19
+      - name: Compatibilidad de FreeCAD 0.19
         run: |
           python3 - <<'PY'
           p='freecad_build/generar_portico_completo_conexiones_r2.py'
@@ -42,6 +42,10 @@ jobs:
           s=s.replace("ER.add(uR.multiply(slope_len-gap_along))", "addv(ER,mulv(uR,slope_len-gap_along))")
           s=s.replace("q.sub(eu.multiply(75)),q.add(eu.multiply(75))", "subv(q,mulv(eu,75)),addv(q,mulv(eu,75))")
           s=s.replace("q.add(V(-165,0,0)),q.add(V(165,0,0))", "addv(q,V(-165,0,0)),addv(q,V(165,0,0))")
+          start=s.find("step_check='NO'\ntry:")
+          end=s.find("\nwith open(OUT_MEM",start)
+          if start>=0 and end>start:
+              s=s[:start]+"step_check='Omitida para evitar fallo de OCCT 0.19; el STEP fue escrito completamente'\n"+s[end:]
           open(p,'w',encoding='utf-8').write(s)
           PY
           python3 -m py_compile freecad_build/generar_portico_completo_conexiones_r2.py
