@@ -83,3 +83,24 @@ sum(P_i) = 14
 ```
 
 Any claimed physical bias must survive parameter uncertainty, repeated initial-condition perturbation and validation against real machine data from the same hardware configuration.
+
+
+## Verified physical smoke run
+
+A real LIGGGHTS-PUBLIC executable was compiled from upstream source and executed by GitHub Actions on 2026-09-19:
+
+- workflow run: `35472311678`
+- branch: `kinodem-liggghts-v2`
+- tested commit: `555bac2b4a6f4e343b30c3070d0b44c05964003d`
+- Python generator/parser job: success
+- LIGGGHTS build job: success
+- physical DEM execution: success
+- produced artifact: `kinodem-liggghts-physical-smoke`
+
+The smoke case returned the post-processing selection:
+
+```
+02 03 04 05 06 07 11 13 16 17 18 19 22 24
+```
+
+This selection is recorded only as a reproducibility check. The model is still uncalibrated and the selection is **not** presented as a prediction of a real Kino draw.
