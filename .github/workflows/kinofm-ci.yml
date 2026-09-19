@@ -22,12 +22,18 @@ jobs:
         run: curl -L --fail --retry 3 -o Sorteos.sqlite https://raw.githubusercontent.com/GioFranco79/kinoso/main/Sorteos.sqlite
       - name: Run unit tests
         run: PYTHONPATH=. pytest -q
+      - name: Run KinoDEM physical smoke simulation
+        run: |
+          set -o pipefail
+          mkdir -p ci-results/kinodem
+          python kinodem_v1.py --runs 30 --mix-seconds 0.06 --dt 0.003 --outdir ci-results/kinodem | tee ci-results/kinodem.log
       - name: Run full causal baseline audit
         run: |
           set -o pipefail
           mkdir -p ci-results
           python kinofm_v4.py --sqlite Sorteos.sqlite --start 1600 --outdir ci-results | tee ci-results/baseline.log
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: kinofm-baseline-results
           path: ci-results/
