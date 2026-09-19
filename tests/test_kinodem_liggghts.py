@@ -18,9 +18,9 @@ def test_initial_state_is_inside_and_nonoverlapping():
     pos, vel = generate_initial_state(cfg, 123)
     assert pos.shape == (N_BALLS, 3)
     assert vel.shape == (N_BALLS, 3)
-    radial = np.linalg.norm(pos[:, :2], axis=1)
-    assert np.all(radial + cfg.ball_radius < cfg.drum_radius)
-    assert np.all(np.abs(pos[:, 2]) + cfg.ball_radius < cfg.drum_depth / 2)
+    assert cfg.geometry == "globe"
+    radius = np.linalg.norm(pos, axis=1)
+    assert np.all(radius + cfg.ball_radius < cfg.drum_radius)
     for i in range(N_BALLS):
         for j in range(i + 1, N_BALLS):
             assert np.linalg.norm(pos[i] - pos[j]) > 2 * cfg.ball_radius
@@ -35,6 +35,9 @@ def test_prepare_case_contains_real_liggghts_commands(tmp_path: Path):
     assert "surface_ang_vel" in inp
     assert "fix wall all wall/gran" in inp
     assert "fix integr all nve/sphere" in inp
+    mesh = (tmp_path / "drum.stl").read_text()
+    assert mesh.startswith("solid kinodem_globe")
+    assert mesh.count("facet normal") == 2 * cfg.drum_segments * (cfg.globe_lat_segments - 1)
     assert (tmp_path / "drum.stl").stat().st_size > 1000
     data = (tmp_path / "balls.data").read_text()
     assert "25 atoms" in data
@@ -68,3 +71,11 @@ def test_selection_is_exactly_14_unique_numbers():
     assert len(selected) == N_DRAW
     assert len(set(selected)) == N_DRAW
     assert selected == list(range(12, 26))
+
+
+def test_legacy_cylinder_geometry_remains_supported():
+    cfg = LiggghtsConfig(geometry="cylinder", seconds=0.001)
+    pos, _ = generate_initial_state(cfg, 321)
+    radial = np.linalg.norm(pos[:, :2], axis=1)
+    assert np.all(radial + cfg.ball_radius < cfg.drum_radius)
+    assert np.all(np.abs(pos[:, 2]) + cfg.ball_radius < cfg.drum_depth / 2)
