@@ -79,9 +79,9 @@ jobs:
         run: |
           python kinodem_chaos.py \
             --workdir ci-liggghts-chaos \
-            --seconds 0.20 \
+            --seconds 2.0 \
             --dt 0.00001 \
-            --dump-every 100 \
+            --dump-every 1000 \
             --epsilon-v 0.000001 \
             --ball 1 \
             --axis 0 \
