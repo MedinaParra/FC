@@ -21,7 +21,7 @@ jobs:
       - name: Download historical Chile Kino database
         run: curl -L --fail --retry 3 -o Sorteos.sqlite https://raw.githubusercontent.com/GioFranco79/kinoso/main/Sorteos.sqlite
       - name: Run unit tests
-        run: pytest -q
+        run: PYTHONPATH=. pytest -q
       - name: Run full causal baseline audit
         run: |
           mkdir -p ci-results
