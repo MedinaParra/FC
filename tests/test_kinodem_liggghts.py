@@ -37,6 +37,8 @@ def test_prepare_case_contains_real_liggghts_commands(tmp_path: Path):
     assert "surface_ang_vel" in inp
     assert "fix wall all wall/gran" in inp
     assert "fix integr all nve/sphere" in inp
+    assert "fix ts_check all check/timestep/gran" in inp
+    assert "f_ts_check[1] f_ts_check[2] f_ts_check[3]" in inp
     mesh = (tmp_path / "drum.stl").read_text()
     assert mesh.startswith("solid kinodem_globe")
     assert mesh.count("facet normal") == 2 * cfg.drum_segments * (cfg.globe_lat_segments - 1)
