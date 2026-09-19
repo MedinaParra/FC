@@ -24,6 +24,7 @@ jobs:
         run: PYTHONPATH=. pytest -q
       - name: Run full causal baseline audit
         run: |
+          set -o pipefail
           mkdir -p ci-results
           python kinofm_v4.py --sqlite Sorteos.sqlite --start 1600 --outdir ci-results | tee ci-results/baseline.log
       - uses: actions/upload-artifact@v4
@@ -52,6 +53,7 @@ jobs:
         env:
           HF_HUB_DISABLE_TELEMETRY: '1'
         run: |
+          set -o pipefail
           mkdir -p ci-results
           python build_current_kino_dataset.py --sqlite Sorteos.sqlite --out ci-results/kino_current_799_3280.csv --max-pages 140 | tee ci-results/current-dataset.log
           python github_current_era.py --csv ci-results/kino_current_799_3280.csv --contexts 64,128,256,512 --n-test 100 --device cpu --outdir ci-results | tee ci-results/current-era.log
