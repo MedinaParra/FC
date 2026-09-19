@@ -51,6 +51,7 @@ class LiggghtsConfig:
     seconds: float = 0.10
     outlet_angle_deg: float = 90.0
     outlet_velocity_weight: float = 0.025
+    dump_every_steps: int = 0
 
     def validate(self) -> None:
         if self.geometry not in {"globe", "cylinder"}:
@@ -71,6 +72,8 @@ class LiggghtsConfig:
             raise ValueError("restitution must be within [0,1]")
         if self.friction < 0:
             raise ValueError("friction must be non-negative")
+        if self.dump_every_steps < 0:
+            raise ValueError("dump_every_steps must be >= 0")
 
     @property
     def steps(self) -> int:
@@ -301,12 +304,21 @@ def write_ball_data(
     cfg: LiggghtsConfig,
     seed: int,
     ball_specs: list[BallCalibration] | None = None,
+    initial_state: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> Path:
     cfg.validate()
     specs = default_ball_calibration(cfg) if ball_specs is None else list(ball_specs)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    pos, vel = generate_initial_state(cfg, seed, specs)
+    if initial_state is None:
+        pos, vel = generate_initial_state(cfg, seed, specs)
+    else:
+        pos = np.asarray(initial_state[0], dtype=float).copy()
+        vel = np.asarray(initial_state[1], dtype=float).copy()
+        if pos.shape != (N_BALLS, 3) or vel.shape != (N_BALLS, 3):
+            raise ValueError("initial_state position and velocity must both be shape (25,3)")
+        if not np.isfinite(pos).all() or not np.isfinite(vel).all():
+            raise ValueError("initial_state contains non-finite values")
     pad = 0.05
     xy = cfg.drum_radius + pad
     zbox = (cfg.drum_radius if cfg.geometry == "globe" else cfg.drum_depth / 2) + pad
@@ -338,7 +350,11 @@ def write_liggghts_input(path: str | Path, cfg: LiggghtsConfig) -> Path:
     cfg.validate()
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    dump_every = max(1, cfg.steps)
+    dump_every = (
+        max(1, cfg.dump_every_steps)
+        if cfg.dump_every_steps > 0
+        else max(1, cfg.steps)
+    )
     txt = f"""# KinoDEM v2 - LIGGGHTS-PUBLIC physical surrogate
 atom_style sphere
 atom_modify map array sort 0 0
@@ -390,12 +406,13 @@ def prepare_case(
     cfg: LiggghtsConfig,
     seed: int,
     ball_specs: list[BallCalibration] | None = None,
+    initial_state: tuple[np.ndarray, np.ndarray] | None = None,
 ) -> Path:
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
     specs = default_ball_calibration(cfg) if ball_specs is None else list(ball_specs)
     write_drum_stl(workdir / "drum.stl", cfg)
-    write_ball_data(workdir / "balls.data", cfg, seed, specs)
+    write_ball_data(workdir / "balls.data", cfg, seed, specs, initial_state=initial_state)
     write_liggghts_input(workdir / "in.kinodem", cfg)
     (workdir / "case.json").write_text(
         json.dumps(
