@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   python-contract:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,7 +29,7 @@ jobs:
           path: ci-liggghts-case/
 
   liggghts-physical-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -37,15 +37,12 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install numpy
-      - name: Build pinned LIGGGHTS-PUBLIC
+      - name: Install Ubuntu LIGGGHTS 3.8
         run: |
-          git clone https://github.com/CFDEMproject/LIGGGHTS-PUBLIC.git /tmp/LIGGGHTS-PUBLIC
-          cd /tmp/LIGGGHTS-PUBLIC
-          git checkout 3d5c00f20519e6bb6eb6756f51f1ad36564e649d
-          cd src
-          make stubs
-          make -j2 serial
-          ./lmp_serial -h > /tmp/liggghts-help.txt || true
+          sudo apt-get update
+          sudo apt-get install -y liggghts
+          /usr/bin/liggghts -h > /tmp/liggghts-help.txt || true
+          dpkg-query -W -f='\${Version}\n' liggghts | tee /tmp/liggghts-version.txt
       - name: Run real LIGGGHTS physical smoke case
         run: |
           python kinodem_liggghts.py \
@@ -53,7 +50,7 @@ jobs:
             --seconds 0.002 \
             --dt 0.00001 \
             --seed 20260919 \
-            --liggghts /tmp/LIGGGHTS-PUBLIC/src/lmp_serial
+            --liggghts /usr/bin/liggghts
           cat ci-liggghts-run/selection.json
       - uses: actions/upload-artifact@v4
         if: always()
@@ -62,3 +59,4 @@ jobs:
           path: |
             ci-liggghts-run/
             /tmp/liggghts-help.txt
+            /tmp/liggghts-version.txt
