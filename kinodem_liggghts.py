@@ -4,7 +4,9 @@ KinoDEM v2 - LIGGGHTS backend
 =============================
 
 Generates and optionally runs a 3D LIGGGHTS-PUBLIC model for 25 numbered
-Kino balls in a rotating cylindrical drum. Geometry/material constants are
+Kino balls in a configurable draw chamber. The default chamber is a closed
+globular/spherical surrogate because public imagery of the Kino draw equipment
+shows a transparent globe-like chamber. Geometry/material constants remain
 surrogate values until real machine measurements are available.
 
 Ball IDs 1..25 are the lottery numbers. The final 14-number selection is a
@@ -31,9 +33,11 @@ N_DRAW = 14
 
 @dataclass(frozen=True)
 class LiggghtsConfig:
+    geometry: str = "globe"
     drum_radius: float = 0.25
     drum_depth: float = 0.12
     drum_segments: int = 72
+    globe_lat_segments: int = 36
     ball_radius: float = 0.020
     ball_density: float = 900.0
     youngs_modulus: float = 5.0e6
@@ -48,12 +52,16 @@ class LiggghtsConfig:
     outlet_velocity_weight: float = 0.025
 
     def validate(self) -> None:
+        if self.geometry not in {"globe", "cylinder"}:
+            raise ValueError("geometry must be 'globe' or 'cylinder'")
         if self.drum_radius <= 3 * self.ball_radius:
             raise ValueError("drum_radius too small for configured ball_radius")
-        if self.drum_depth <= 2.2 * self.ball_radius:
+        if self.geometry == "cylinder" and self.drum_depth <= 2.2 * self.ball_radius:
             raise ValueError("drum_depth too small for configured ball_radius")
         if self.drum_segments < 16:
             raise ValueError("drum_segments must be >= 16")
+        if self.geometry == "globe" and self.globe_lat_segments < 8:
+            raise ValueError("globe_lat_segments must be >= 8")
         if self.timestep <= 0 or self.seconds <= 0:
             raise ValueError("timestep and seconds must be positive")
         if self.ball_density <= 0 or self.youngs_modulus <= 0:
@@ -88,7 +96,7 @@ def _facet(normal: Iterable[float], a: Iterable[float], b: Iterable[float], c: I
     )
 
 
-def write_drum_stl(path: str | Path, cfg: LiggghtsConfig) -> Path:
+def write_cylinder_stl(path: str | Path, cfg: LiggghtsConfig) -> Path:
     cfg.validate()
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -115,6 +123,72 @@ def write_drum_stl(path: str | Path, cfg: LiggghtsConfig) -> Path:
     return path
 
 
+def write_globe_stl(path: str | Path, cfg: LiggghtsConfig) -> Path:
+    """Write a closed UV-sphere mesh used as the globe-like draw chamber."""
+    cfg.validate()
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    r = cfg.drum_radius
+    nlon = cfg.drum_segments
+    nlat = cfg.globe_lat_segments
+
+    rings: list[list[tuple[float, float, float]]] = []
+    # Exclude the poles from the rings so cap triangles are non-degenerate.
+    for j in range(1, nlat):
+        phi = -math.pi / 2 + math.pi * j / nlat
+        cp, sp = math.cos(phi), math.sin(phi)
+        ring = []
+        for k in range(nlon):
+            theta = 2 * math.pi * k / nlon
+            ring.append((r * cp * math.cos(theta), r * cp * math.sin(theta), r * sp))
+        rings.append(ring)
+
+    south = (0.0, 0.0, -r)
+    north = (0.0, 0.0, r)
+    chunks = ["solid kinodem_globe\n"]
+
+    def outward_normal(a, b, c):
+        av, bv, cv = np.asarray(a), np.asarray(b), np.asarray(c)
+        n = np.cross(bv - av, cv - av)
+        center = (av + bv + cv) / 3.0
+        if float(np.dot(n, center)) < 0:
+            n = -n
+        norm = float(np.linalg.norm(n))
+        return tuple(n / norm) if norm > 0 else (0.0, 0.0, 1.0)
+
+    first = rings[0]
+    last = rings[-1]
+    for k in range(nlon):
+        k1 = (k + 1) % nlon
+        a, b = south, first[k1]
+        cc = first[k]
+        chunks.append(_facet(outward_normal(a, b, cc), a, b, cc))
+
+    for j in range(len(rings) - 1):
+        lo, hi = rings[j], rings[j + 1]
+        for k in range(nlon):
+            k1 = (k + 1) % nlon
+            t1 = (lo[k], lo[k1], hi[k1])
+            t2 = (lo[k], hi[k1], hi[k])
+            chunks.append(_facet(outward_normal(*t1), *t1))
+            chunks.append(_facet(outward_normal(*t2), *t2))
+
+    for k in range(nlon):
+        k1 = (k + 1) % nlon
+        a, b, cc = last[k], last[k1], north
+        chunks.append(_facet(outward_normal(a, b, cc), a, b, cc))
+
+    chunks.append("endsolid kinodem_globe\n")
+    path.write_text("".join(chunks), encoding="utf-8")
+    return path
+
+
+def write_drum_stl(path: str | Path, cfg: LiggghtsConfig) -> Path:
+    if cfg.geometry == "globe":
+        return write_globe_stl(path, cfg)
+    return write_cylinder_stl(path, cfg)
+
+
 def generate_initial_state(cfg: LiggghtsConfig, seed: int) -> tuple[np.ndarray, np.ndarray]:
     cfg.validate()
     rng = np.random.default_rng(seed)
@@ -127,10 +201,19 @@ def generate_initial_state(cfg: LiggghtsConfig, seed: int) -> tuple[np.ndarray, 
 
     for i in range(N_BALLS):
         for _ in range(100_000):
-            rho = radial_limit * math.sqrt(float(rng.random()))
-            theta = float(rng.uniform(0.0, 2 * math.pi))
-            z = float(rng.uniform(-z_limit, z_limit))
-            cand = np.array([rho * math.cos(theta), rho * math.sin(theta), z])
+            if cfg.geometry == "globe":
+                direction = rng.normal(0.0, 1.0, size=3)
+                norm = float(np.linalg.norm(direction))
+                if norm < 1e-12:
+                    continue
+                direction /= norm
+                rho = radial_limit * float(rng.random()) ** (1.0 / 3.0)
+                cand = direction * rho
+            else:
+                rho = radial_limit * math.sqrt(float(rng.random()))
+                theta = float(rng.uniform(0.0, 2 * math.pi))
+                z = float(rng.uniform(-z_limit, z_limit))
+                cand = np.array([rho * math.cos(theta), rho * math.sin(theta), z])
             if i == 0 or np.all(np.linalg.norm(pos[:i] - cand, axis=1) > min_sep):
                 pos[i] = cand
                 break
@@ -146,7 +229,7 @@ def write_ball_data(path: str | Path, cfg: LiggghtsConfig, seed: int) -> Path:
     pos, vel = generate_initial_state(cfg, seed)
     pad = 0.05
     xy = cfg.drum_radius + pad
-    zbox = cfg.drum_depth / 2 + pad
+    zbox = (cfg.drum_radius if cfg.geometry == "globe" else cfg.drum_depth / 2) + pad
 
     lines = [
         "KinoDEM v2 LIGGGHTS data - surrogate parameters\n\n",
@@ -359,12 +442,18 @@ def main() -> None:
     ap.add_argument("--seconds", type=float, default=0.10)
     ap.add_argument("--dt", type=float, default=1e-5)
     ap.add_argument("--omega", type=float, default=7.0)
+    ap.add_argument("--geometry", choices=["globe", "cylinder"], default="globe")
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--liggghts")
     ap.add_argument("--prepare-only", action="store_true")
     args = ap.parse_args()
 
-    cfg = LiggghtsConfig(seconds=args.seconds, timestep=args.dt, angular_velocity=args.omega)
+    cfg = LiggghtsConfig(
+        geometry=args.geometry,
+        seconds=args.seconds,
+        timestep=args.dt,
+        angular_velocity=args.omega,
+    )
     if args.prepare_only:
         print(prepare_case(args.workdir, cfg, args.seed))
         return
