@@ -6,14 +6,9 @@ This branch moves the physical experiment from the small Python DEM surrogate to
 
 LIGGGHTS is a discrete-element solver derived from LAMMPS and includes granular contact models, spherical particles, triangular mesh walls, moving/rotating wall surfaces, and parallel execution.
 
-The official public repository states that Aspherix is the commercial successor to LIGGGHTS. For this experiment we pin the public source revision used by CI instead of silently following an unpinned moving dependency.
+The official public repository states that Aspherix is the successor to LIGGGHTS. KinoDEM nevertheless uses the open LIGGGHTS-PUBLIC-compatible 3.8 solver because it exposes the DEM features required here.
 
-Pinned source revision used in CI:
-
-```
-CFDEMproject/LIGGGHTS-PUBLIC
-3d5c00f20519e6bb6eb6756f51f1ad36564e649d
-```
+CI runs on Ubuntu 24.04 and installs the distribution's `liggghts` package. The workflow records the exact installed package version as an artifact. The upstream source repository remains `CFDEMproject/LIGGGHTS-PUBLIC` for code/documentation reference.
 
 ## Current physical model
 
