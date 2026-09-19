@@ -68,7 +68,12 @@ jobs:
           assert s["runs"] == 8
           assert math.isclose(s["probability_sum"], 14.0, abs_tol=1e-12)
           assert sum(s["counts"]) == 8*14
+          st=s["stability"]
+          assert st["max_dt_over_rayleigh"] < st["rayleigh_limit"]
+          assert st["max_dt_over_hertz"] < st["hertz_limit"]
+          assert st["max_relative_travel_over_skin"] < st["skin_limit"]
           print("MC invariant OK:", s["probability_sum"])
+          print("Stability:", st)
           PY
       - uses: actions/upload-artifact@v4
         if: always()
