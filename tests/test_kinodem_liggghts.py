@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +8,7 @@ from kinodem_liggghts import (
     N_BALLS,
     N_DRAW,
     generate_initial_state,
+    load_ball_calibration_csv,
     parse_last_dump,
     prepare_case,
     select_from_state,
@@ -79,3 +81,33 @@ def test_legacy_cylinder_geometry_remains_supported():
     radial = np.linalg.norm(pos[:, :2], axis=1)
     assert np.all(radial + cfg.ball_radius < cfg.drum_radius)
     assert np.all(np.abs(pos[:, 2]) + cfg.ball_radius < cfg.drum_depth / 2)
+
+
+def test_measured_ball_calibration_is_written_per_particle(tmp_path: Path):
+    csv_path = tmp_path / "balls.csv"
+    rows = ["number,diameter_m,mass_kg"]
+    for i in range(1, 26):
+        diameter = 0.039 if i == 1 else 0.040
+        mass = 0.0038 if i == 1 else 0.0040
+        rows.append(f"{i},{diameter},{mass}")
+    csv_path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    specs = load_ball_calibration_csv(csv_path)
+    assert len(specs) == 25
+    assert specs[0].number == 1
+    assert specs[0].diameter_m == 0.039
+    assert specs[0].mass_kg == 0.0038
+
+    cfg = LiggghtsConfig(seconds=0.001)
+    case = prepare_case(tmp_path / "case", cfg, 17, specs)
+    data_lines = (case / "balls.data").read_text().splitlines()
+    atom1 = next(line for line in data_lines if line.startswith("1 1 "))
+    parts = atom1.split()
+    assert float(parts[2]) == 0.039
+    expected_density = specs[0].density_kg_m3
+    assert np.isclose(float(parts[3]), expected_density, rtol=1e-10)
+
+    metadata = json.loads((case / "case.json").read_text())
+    assert metadata["balls"][0]["number"] == 1
+    assert metadata["balls"][0]["diameter_m"] == 0.039
+    assert np.isclose(metadata["balls"][0]["density_kg_m3"], expected_density)
