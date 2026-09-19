@@ -73,6 +73,16 @@ def scrape_loterator(min_draw=2648,max_draw=3280,max_pages=20):
     finally:
         driver.quit()
 
+    # Fallbacks independientes solo para huecos comprobados del render.
+    # #3155 verificado contra PrensaDigital y Lotero, 28/11/2025.
+    fallbacks={
+        3155: ("28/11/2025", [3,7,8,9,10,11,12,13,18,19,20,21,22,24]),
+    }
+    for d,(fecha,nums) in fallbacks.items():
+        if min_draw <= d <= max_draw and d not in found:
+            found[d]=(fecha,validate_numbers(nums))
+            print(f"fallback_draw={d} source=independent_verified")
+
     missing=[d for d in range(min_draw,max_draw+1) if d not in found]
     if missing:
         raise RuntimeError(f"LoterAtor rendered history missing {len(missing)} draws: {missing[:50]}")
