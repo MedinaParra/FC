@@ -16,6 +16,7 @@ of the real extraction mechanism.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import os
@@ -83,6 +84,59 @@ class MonteCarloPerturbation:
     restitution_sigma: float = 0.01
     friction_sigma: float = 0.01
     omega_sigma_frac: float = 0.01
+
+
+@dataclass(frozen=True)
+class BallCalibration:
+    number: int
+    diameter_m: float
+    mass_kg: float
+
+    def validate(self) -> None:
+        if not (1 <= self.number <= N_BALLS):
+            raise ValueError(f"ball number out of range: {self.number}")
+        if not math.isfinite(self.diameter_m) or self.diameter_m <= 0:
+            raise ValueError(f"invalid diameter for ball {self.number}")
+        if not math.isfinite(self.mass_kg) or self.mass_kg <= 0:
+            raise ValueError(f"invalid mass for ball {self.number}")
+
+    @property
+    def radius_m(self) -> float:
+        return self.diameter_m / 2.0
+
+    @property
+    def density_kg_m3(self) -> float:
+        volume = 4.0 * math.pi * self.radius_m**3 / 3.0
+        return self.mass_kg / volume
+
+
+def default_ball_calibration(cfg: LiggghtsConfig) -> list[BallCalibration]:
+    r = cfg.ball_radius
+    volume = 4.0 * math.pi * r**3 / 3.0
+    mass = cfg.ball_density * volume
+    return [BallCalibration(i, 2.0 * r, mass) for i in range(1, N_BALLS + 1)]
+
+
+def load_ball_calibration_csv(path: str | Path) -> list[BallCalibration]:
+    path = Path(path)
+    rows: list[BallCalibration] = []
+    with path.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        required = {"number", "diameter_m", "mass_kg"}
+        if reader.fieldnames is None or not required.issubset(reader.fieldnames):
+            raise ValueError(f"calibration CSV requires columns {sorted(required)}")
+        for row in reader:
+            spec = BallCalibration(
+                number=int(row["number"]),
+                diameter_m=float(row["diameter_m"]),
+                mass_kg=float(row["mass_kg"]),
+            )
+            spec.validate()
+            rows.append(spec)
+    rows.sort(key=lambda x: x.number)
+    if [x.number for x in rows] != list(range(1, N_BALLS + 1)):
+        raise ValueError("calibration CSV must contain each ball number 1..25 exactly once")
+    return rows
 
 
 def _facet(normal: Iterable[float], a: Iterable[float], b: Iterable[float], c: Iterable[float]) -> str:
@@ -189,17 +243,29 @@ def write_drum_stl(path: str | Path, cfg: LiggghtsConfig) -> Path:
     return write_cylinder_stl(path, cfg)
 
 
-def generate_initial_state(cfg: LiggghtsConfig, seed: int) -> tuple[np.ndarray, np.ndarray]:
+def generate_initial_state(
+    cfg: LiggghtsConfig,
+    seed: int,
+    ball_specs: list[BallCalibration] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
     cfg.validate()
+    specs = default_ball_calibration(cfg) if ball_specs is None else list(ball_specs)
+    if len(specs) != N_BALLS or [s.number for s in specs] != list(range(1, N_BALLS + 1)):
+        raise ValueError("ball_specs must contain numbers 1..25 in order")
+    for spec in specs:
+        spec.validate()
+    radii = np.asarray([s.radius_m for s in specs], dtype=float)
+    if cfg.drum_radius <= float(radii.max()) * 3:
+        raise ValueError("configured chamber is too small for calibrated balls")
+
     rng = np.random.default_rng(seed)
     pos = np.zeros((N_BALLS, 3), dtype=float)
     vel = rng.normal(0.0, 0.08, size=(N_BALLS, 3))
     margin = 1e-4
-    radial_limit = cfg.drum_radius - cfg.ball_radius - margin
-    z_limit = cfg.drum_depth / 2 - cfg.ball_radius - margin
-    min_sep = 2 * cfg.ball_radius + 2e-4
 
     for i in range(N_BALLS):
+        radial_limit = cfg.drum_radius - radii[i] - margin
+        z_limit = cfg.drum_depth / 2 - radii[i] - margin
         for _ in range(100_000):
             if cfg.geometry == "globe":
                 direction = rng.normal(0.0, 1.0, size=3)
@@ -210,11 +276,19 @@ def generate_initial_state(cfg: LiggghtsConfig, seed: int) -> tuple[np.ndarray, 
                 rho = radial_limit * float(rng.random()) ** (1.0 / 3.0)
                 cand = direction * rho
             else:
+                if z_limit <= 0:
+                    raise ValueError("cylinder depth is too small for calibrated balls")
                 rho = radial_limit * math.sqrt(float(rng.random()))
                 theta = float(rng.uniform(0.0, 2 * math.pi))
                 z = float(rng.uniform(-z_limit, z_limit))
                 cand = np.array([rho * math.cos(theta), rho * math.sin(theta), z])
-            if i == 0 or np.all(np.linalg.norm(pos[:i] - cand, axis=1) > min_sep):
+            if i == 0:
+                ok = True
+            else:
+                sep = np.linalg.norm(pos[:i] - cand, axis=1)
+                required = radii[:i] + radii[i] + 2e-4
+                ok = bool(np.all(sep > required))
+            if ok:
                 pos[i] = cand
                 break
         else:
@@ -222,17 +296,23 @@ def generate_initial_state(cfg: LiggghtsConfig, seed: int) -> tuple[np.ndarray, 
     return pos, vel
 
 
-def write_ball_data(path: str | Path, cfg: LiggghtsConfig, seed: int) -> Path:
+def write_ball_data(
+    path: str | Path,
+    cfg: LiggghtsConfig,
+    seed: int,
+    ball_specs: list[BallCalibration] | None = None,
+) -> Path:
     cfg.validate()
+    specs = default_ball_calibration(cfg) if ball_specs is None else list(ball_specs)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    pos, vel = generate_initial_state(cfg, seed)
+    pos, vel = generate_initial_state(cfg, seed, specs)
     pad = 0.05
     xy = cfg.drum_radius + pad
     zbox = (cfg.drum_radius if cfg.geometry == "globe" else cfg.drum_depth / 2) + pad
 
     lines = [
-        "KinoDEM v2 LIGGGHTS data - surrogate parameters\n\n",
+        "KinoDEM v2 LIGGGHTS data - per-ball diameter/density supported\n\n",
         f"{N_BALLS} atoms\n",
         "1 atom types\n\n",
         f"{-xy:.12g} {xy:.12g} xlo xhi\n",
@@ -240,11 +320,10 @@ def write_ball_data(path: str | Path, cfg: LiggghtsConfig, seed: int) -> Path:
         f"{-zbox:.12g} {zbox:.12g} zlo zhi\n\n",
         "Atoms\n\n",
     ]
-    diameter = 2 * cfg.ball_radius
-    for i in range(N_BALLS):
+    for i, spec in enumerate(specs):
         x, y, z = pos[i]
         lines.append(
-            f"{i+1} 1 {diameter:.12g} {cfg.ball_density:.12g} "
+            f"{spec.number} 1 {spec.diameter_m:.12g} {spec.density_kg_m3:.12g} "
             f"{x:.12g} {y:.12g} {z:.12g}\n"
         )
     lines.append("\nVelocities\n\n")
@@ -303,14 +382,28 @@ run {cfg.steps}
     return path
 
 
-def prepare_case(workdir: str | Path, cfg: LiggghtsConfig, seed: int) -> Path:
+def prepare_case(
+    workdir: str | Path,
+    cfg: LiggghtsConfig,
+    seed: int,
+    ball_specs: list[BallCalibration] | None = None,
+) -> Path:
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
+    specs = default_ball_calibration(cfg) if ball_specs is None else list(ball_specs)
     write_drum_stl(workdir / "drum.stl", cfg)
-    write_ball_data(workdir / "balls.data", cfg, seed)
+    write_ball_data(workdir / "balls.data", cfg, seed, specs)
     write_liggghts_input(workdir / "in.kinodem", cfg)
     (workdir / "case.json").write_text(
-        json.dumps({"seed": seed, "config": asdict(cfg)}, indent=2, sort_keys=True),
+        json.dumps(
+            {
+                "seed": seed,
+                "config": asdict(cfg),
+                "balls": [asdict(s) | {"density_kg_m3": s.density_kg_m3} for s in specs],
+            },
+            indent=2,
+            sort_keys=True,
+        ),
         encoding="utf-8",
     )
     return workdir
@@ -399,7 +492,7 @@ def perturb_config(cfg: LiggghtsConfig, p: MonteCarloPerturbation, rng: np.rando
     )
 
 
-def monte_carlo_liggghts(root, runs, seed, cfg, liggghts, timeout=600):
+def monte_carlo_liggghts(root, runs, seed, cfg, liggghts, timeout=600, ball_specs=None):
     if runs <= 0:
         raise ValueError("runs must be > 0")
     root = Path(root)
@@ -411,7 +504,7 @@ def monte_carlo_liggghts(root, runs, seed, cfg, liggghts, timeout=600):
     for k in range(runs):
         run_seed = int(master.integers(1, 2**31 - 1))
         run_cfg = perturb_config(cfg, perturb, master)
-        case = prepare_case(root / f"run_{k:05d}", run_cfg, run_seed)
+        case = prepare_case(root / f"run_{k:05d}", run_cfg, run_seed, ball_specs)
         run_case(case, liggghts=liggghts, timeout=timeout)
         selected = select_from_state(parse_last_dump(case / "state.dump"), run_cfg)
         counts[np.asarray(selected) - 1] += 1
@@ -445,6 +538,10 @@ def main() -> None:
     ap.add_argument("--geometry", choices=["globe", "cylinder"], default="globe")
     ap.add_argument("--runs", type=int, default=1)
     ap.add_argument("--liggghts")
+    ap.add_argument(
+        "--ball-calibration",
+        help="CSV with columns number,diameter_m,mass_kg for all balls 1..25",
+    )
     ap.add_argument("--prepare-only", action="store_true")
     args = ap.parse_args()
 
@@ -454,11 +551,12 @@ def main() -> None:
         timestep=args.dt,
         angular_velocity=args.omega,
     )
+    ball_specs = load_ball_calibration_csv(args.ball_calibration) if args.ball_calibration else None
     if args.prepare_only:
-        print(prepare_case(args.workdir, cfg, args.seed))
+        print(prepare_case(args.workdir, cfg, args.seed, ball_specs))
         return
     if args.runs == 1:
-        case = prepare_case(args.workdir, cfg, args.seed)
+        case = prepare_case(args.workdir, cfg, args.seed, ball_specs)
         run_case(case, args.liggghts)
         selected = select_from_state(parse_last_dump(case / "state.dump"), cfg)
         (case / "selection.json").write_text(
@@ -467,7 +565,9 @@ def main() -> None:
         )
         print("selected:", " ".join(f"{x:02d}" for x in selected))
     else:
-        result = monte_carlo_liggghts(args.workdir, args.runs, args.seed, cfg, args.liggghts)
+        result = monte_carlo_liggghts(
+            args.workdir, args.runs, args.seed, cfg, args.liggghts, ball_specs=ball_specs
+        )
         order = np.argsort(np.asarray(result["probabilities"]))[::-1]
         print(f"runs={args.runs} sum(P_i)={result['probability_sum']:.12f}")
         for idx in order[:N_DRAW]:
