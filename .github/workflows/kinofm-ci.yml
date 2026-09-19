@@ -25,7 +25,7 @@ jobs:
       - name: Run full causal baseline audit
         run: |
           mkdir -p ci-results
-          python kinofm_v4.py --sqlite Sorteos.sqlite --start 512 --outdir ci-results | tee ci-results/baseline.log
+          python kinofm_v4.py --sqlite Sorteos.sqlite --start 1600 --outdir ci-results | tee ci-results/baseline.log
       - uses: actions/upload-artifact@v4
         with:
           name: kinofm-baseline-results
@@ -53,7 +53,7 @@ jobs:
           HF_HUB_DISABLE_TELEMETRY: '1'
         run: |
           mkdir -p ci-results
-          python github_smoke.py --sqlite Sorteos.sqlite --context 128 --device cpu | tee ci-results/timesfm3-smoke.log
+          python github_timesfm_backtest.py --sqlite Sorteos.sqlite --context 128 --n-test 30 --device cpu --outdir ci-results | tee ci-results/timesfm3-backtest.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
