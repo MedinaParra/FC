@@ -48,14 +48,15 @@ jobs:
           python -m pip install '.[torch]'
       - name: Download historical Chile Kino database
         run: curl -L --fail --retry 3 -o Sorteos.sqlite https://raw.githubusercontent.com/GioFranco79/kinoso/main/Sorteos.sqlite
-      - name: TimesFM 3.0 CPU integration smoke test
+      - name: Build current dataset and run TimesFM current-era validation
         env:
           HF_HUB_DISABLE_TELEMETRY: '1'
         run: |
           mkdir -p ci-results
-          python github_timesfm_matrix.py --sqlite Sorteos.sqlite --contexts 64,128,256,512 --n-test 100 --device cpu --batch-size 16 --outdir ci-results | tee ci-results/timesfm3-matrix.log
+          python build_current_kino_dataset.py --sqlite Sorteos.sqlite --out ci-results/kino_current_799_3280.csv --max-pages 20 | tee ci-results/current-dataset.log
+          python github_current_era.py --csv ci-results/kino_current_799_3280.csv --contexts 64,128,256,512 --n-test 100 --device cpu --outdir ci-results | tee ci-results/current-era.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: kinofm-timesfm3-matrix
+          name: kinofm-current-era
           path: ci-results/
