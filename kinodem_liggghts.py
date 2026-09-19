@@ -372,7 +372,7 @@ fix integr all nve/sphere
 fix ts_check all check/timestep/gran {max(1, min(cfg.steps, max(10, cfg.steps // 10)))} 0.1 0.1 warn yes error yes
 
 timestep {cfg.timestep:.12g}
-thermo_style custom step atoms ke
+thermo_style custom step atoms ke f_ts_check[1] f_ts_check[2] f_ts_check[3]
 thermo {max(1, cfg.steps // 10)}
 thermo_modify lost error norm no
 
