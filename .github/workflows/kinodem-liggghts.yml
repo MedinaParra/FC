@@ -1,0 +1,59 @@
+name: KinoDEM LIGGGHTS v2
+
+on:
+  push:
+    branches: [kinodem-liggghts-v2]
+  workflow_dispatch:
+
+jobs:
+  python-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy pytest
+      - name: Test LIGGGHTS case generator and parser
+        run: PYTHONPATH=. pytest -q tests/test_kinodem_liggghts.py
+      - name: Generate inspectable case
+        run: python kinodem_liggghts.py --prepare-only --workdir ci-liggghts-case --seconds 0.002
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kinodem-liggghts-generated-case
+          path: ci-liggghts-case/
+
+  liggghts-physical-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy
+      - name: Build pinned LIGGGHTS-PUBLIC
+        run: |
+          git clone https://github.com/CFDEMproject/LIGGGHTS-PUBLIC.git /tmp/LIGGGHTS-PUBLIC
+          cd /tmp/LIGGGHTS-PUBLIC
+          git checkout 3d5c00f20519e6bb6eb6756f51f1ad36564e649d
+          cd src
+          make stubs
+          make -j2 serial
+          ./lmp_serial -h > /tmp/liggghts-help.txt || true
+      - name: Run real LIGGGHTS physical smoke case
+        run: |
+          python kinodem_liggghts.py \
+            --workdir ci-liggghts-run \
+            --seconds 0.002 \
+            --dt 0.00001 \
+            --seed 20260919 \
+            --liggghts /tmp/LIGGGHTS-PUBLIC/src/lmp_serial
+          cat ci-liggghts-run/selection.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kinodem-liggghts-physical-smoke
+          path: |
+            ci-liggghts-run/
+            /tmp/liggghts-help.txt
