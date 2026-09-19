@@ -368,6 +368,9 @@ fix wall all wall/gran model hertz tangential history mesh n_meshes 1 meshes dru
 fix grav all gravity {cfg.gravity:.12g} vector 0 -1 0
 fix integr all nve/sphere
 
+# Abort instead of accepting a timestep above 10% of Rayleigh/Hertz limits.
+fix ts_check all check/timestep/gran {max(1, min(cfg.steps, max(10, cfg.steps // 10)))} 0.1 0.1 warn yes error yes
+
 timestep {cfg.timestep:.12g}
 thermo_style custom step atoms ke
 thermo {max(1, cfg.steps // 10)}
