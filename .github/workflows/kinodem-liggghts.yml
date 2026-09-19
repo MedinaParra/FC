@@ -15,7 +15,7 @@ jobs:
           python-version: '3.11'
       - run: python -m pip install numpy pytest
       - name: Test LIGGGHTS case generator and parser
-        run: PYTHONPATH=. pytest -q tests/test_kinodem_liggghts.py
+        run: PYTHONPATH=. pytest -q tests/test_kinodem_liggghts.py tests/test_kinodem_bias.py
       - name: Generate inspectable case
         run: python kinodem_liggghts.py --prepare-only --workdir ci-liggghts-case --seconds 0.002
       - uses: actions/upload-artifact@v4
