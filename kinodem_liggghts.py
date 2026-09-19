@@ -423,6 +423,47 @@ def find_liggghts(explicit: str | None = None) -> str:
     raise FileNotFoundError("LIGGGHTS executable not found; pass --liggghts or set LIGGGHTS_BIN")
 
 
+def parse_timestep_metrics(path: str | Path) -> dict[str, float]:
+    """Parse max DEM stability ratios emitted by fix check/timestep/gran."""
+    path = Path(path)
+    rows: list[tuple[float, float, float]] = []
+    in_thermo = False
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if line.startswith("Step") and "Atoms" in line and line.count("ts_check") >= 3:
+            in_thermo = True
+            continue
+        if in_thermo and line.startswith("Loop time"):
+            in_thermo = False
+            continue
+        if not in_thermo or not line:
+            continue
+        parts = line.split()
+        if len(parts) < 6:
+            continue
+        try:
+            step = int(parts[0])
+            int(parts[1])
+            float(parts[2])
+            rayleigh = float(parts[3])
+            hertz = float(parts[4])
+            skin = float(parts[5])
+        except ValueError:
+            continue
+        if step > 0:
+            rows.append((rayleigh, hertz, skin))
+    if not rows:
+        raise ValueError(f"no timestep diagnostic rows found in {path}")
+    return {
+        "max_dt_over_rayleigh": max(x[0] for x in rows),
+        "max_dt_over_hertz": max(x[1] for x in rows),
+        "max_relative_travel_over_skin": max(x[2] for x in rows),
+        "rayleigh_limit": 0.1,
+        "hertz_limit": 0.1,
+        "skin_limit": 1.0,
+    }
+
+
 def run_case(workdir: str | Path, liggghts: str | None = None, timeout: int = 600):
     workdir = Path(workdir)
     exe = find_liggghts(liggghts)
@@ -439,6 +480,11 @@ def run_case(workdir: str | Path, liggghts: str | None = None, timeout: int = 60
     log_path.write_text(proc.stdout, encoding="utf-8")
     if proc.returncode != 0:
         raise RuntimeError(f"LIGGGHTS failed with code {proc.returncode}; see {log_path}")
+    stability = parse_timestep_metrics(log_path)
+    (workdir / "stability.json").write_text(
+        json.dumps(stability, indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
     return proc
 
 
@@ -504,11 +550,15 @@ def monte_carlo_liggghts(root, runs, seed, cfg, liggghts, timeout=600, ball_spec
     perturb = MonteCarloPerturbation()
     counts = np.zeros(N_BALLS, dtype=int)
     selections = []
+    stability_runs = []
     for k in range(runs):
         run_seed = int(master.integers(1, 2**31 - 1))
         run_cfg = perturb_config(cfg, perturb, master)
         case = prepare_case(root / f"run_{k:05d}", run_cfg, run_seed, ball_specs)
         run_case(case, liggghts=liggghts, timeout=timeout)
+        stability_runs.append(
+            json.loads((case / "stability.json").read_text(encoding="utf-8"))
+        )
         selected = select_from_state(parse_last_dump(case / "state.dump"), run_cfg)
         counts[np.asarray(selected) - 1] += 1
         selections.append(selected)
@@ -526,6 +576,16 @@ def monte_carlo_liggghts(root, runs, seed, cfg, liggghts, timeout=600, ball_spec
         "config": asdict(cfg),
         "perturbation": asdict(perturb),
         "selections": selections,
+        "stability": {
+            "max_dt_over_rayleigh": max(x["max_dt_over_rayleigh"] for x in stability_runs),
+            "max_dt_over_hertz": max(x["max_dt_over_hertz"] for x in stability_runs),
+            "max_relative_travel_over_skin": max(
+                x["max_relative_travel_over_skin"] for x in stability_runs
+            ),
+            "rayleigh_limit": 0.1,
+            "hertz_limit": 0.1,
+            "skin_limit": 1.0,
+        },
     }
     (root / "summary.json").write_text(json.dumps(result, indent=2), encoding="utf-8")
     return result
@@ -562,8 +622,17 @@ def main() -> None:
         case = prepare_case(args.workdir, cfg, args.seed, ball_specs)
         run_case(case, args.liggghts)
         selected = select_from_state(parse_last_dump(case / "state.dump"), cfg)
+        stability = json.loads((case / "stability.json").read_text(encoding="utf-8"))
         (case / "selection.json").write_text(
-            json.dumps({"selected": selected, "seed": args.seed, "backend": "LIGGGHTS-PUBLIC"}, indent=2),
+            json.dumps(
+                {
+                    "selected": selected,
+                    "seed": args.seed,
+                    "backend": "LIGGGHTS-PUBLIC",
+                    "stability": stability,
+                },
+                indent=2,
+            ),
             encoding="utf-8",
         )
         print("selected:", " ".join(f"{x:02d}" for x in selected))
