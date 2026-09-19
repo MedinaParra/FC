@@ -104,3 +104,53 @@ The smoke case returned the post-processing selection:
 ```
 
 This selection is recorded only as a reproducibility check. The model is still uncalibrated and the selection is **not** presented as a prediction of a real Kino draw.
+
+
+## Globe geometry and per-ball calibration
+
+The default geometry is now `globe`, generated as a closed triangulated UV-sphere because public images of the Kino draw equipment show a globe-like transparent chamber. The previous cylindrical chamber remains available with `--geometry cylinder` for regression tests.
+
+KinoDEM can ingest measured data for every numbered ball:
+
+```csv
+number,diameter_m,mass_kg
+1,0.000000,0.000000
+2,0.000000,0.000000
+...
+25,0.000000,0.000000
+```
+
+The zeroes above are schema placeholders only and are not valid calibration values. A real file must contain positive measured diameter and mass for each number exactly once. Run it with:
+
+```bash
+python kinodem_liggghts.py \
+  --ball-calibration measured_balls.csv \
+  --workdir measured-case \
+  --liggghts /usr/bin/liggghts
+```
+
+For each particle KinoDEM computes density from the measured mass and diameter and writes the per-particle diameter/density to the LIGGGHTS sphere data.
+
+## Verified globe + Monte Carlo run
+
+GitHub Actions run `35472737645` completed successfully on 2026-09-19 with Ubuntu's LIGGGHTS package version `3.8.0+repack1-9.1build2`.
+
+It verified:
+
+- the globe STL generator;
+- non-overlapping 3D initial conditions;
+- per-ball mass/diameter calibration parsing;
+- a real single-case LIGGGHTS execution;
+- eight independent physical LIGGGHTS runs;
+- Monte Carlo probability accounting;
+- the physical-bias report.
+
+The Monte Carlo smoke batch satisfied the exact accounting invariant:
+
+```
+runs = 8
+sum(P_i) = 14.0
+sum(count_i) = 8 * 14 = 112
+```
+
+All Bonferroni-adjusted bias p-values in this tiny smoke batch were 1.0. This is expected and is evidence that the smoke test must not be interpreted as detecting a real ball bias. Its purpose is to verify the end-to-end physical pipeline.
