@@ -53,9 +53,9 @@ jobs:
           HF_HUB_DISABLE_TELEMETRY: '1'
         run: |
           mkdir -p ci-results
-          python github_timesfm_backtest.py --sqlite Sorteos.sqlite --context 128 --n-test 30 --device cpu --outdir ci-results | tee ci-results/timesfm3-backtest.log
+          python github_timesfm_matrix.py --sqlite Sorteos.sqlite --contexts 64,128,256,512 --n-test 100 --device cpu --batch-size 16 --outdir ci-results | tee ci-results/timesfm3-matrix.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: kinofm-timesfm3-smoke
+          name: kinofm-timesfm3-matrix
           path: ci-results/
