@@ -10,6 +10,7 @@ from kinodem_liggghts import (
     generate_initial_state,
     load_ball_calibration_csv,
     parse_last_dump,
+    parse_timestep_metrics,
     prepare_case,
     select_from_state,
 )
@@ -113,3 +114,25 @@ def test_measured_ball_calibration_is_written_per_particle(tmp_path: Path):
     assert metadata["balls"][0]["number"] == 1
     assert metadata["balls"][0]["diameter_m"] == 0.039
     assert np.isclose(metadata["balls"][0]["density_kg_m3"], expected_density)
+
+
+def test_parse_timestep_metrics(tmp_path: Path):
+    log = tmp_path / "liggghts.stdout.log"
+    log.write_text(
+        """
+LIGGGHTS test
+    Step    Atoms    KinEng    ts_check    ts_check    ts_check
+       0       25      0.01            0            0            0
+      20       25      0.01      0.00650      0.00190      0.00120
+      40       25      0.01      0.00670      0.00210      0.00150
+Loop time of 0.1 on 1 procs
+""",
+        encoding="utf-8",
+    )
+    m = parse_timestep_metrics(log)
+    assert m["max_dt_over_rayleigh"] == 0.00670
+    assert m["max_dt_over_hertz"] == 0.00210
+    assert m["max_relative_travel_over_skin"] == 0.00150
+    assert m["max_dt_over_rayleigh"] < m["rayleigh_limit"]
+    assert m["max_dt_over_hertz"] < m["hertz_limit"]
+    assert m["max_relative_travel_over_skin"] < m["skin_limit"]
