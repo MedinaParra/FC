@@ -2,13 +2,15 @@
 """
 Construye un histórico continuo Kino Chile:
 - #799..#2647 desde Sorteos.sqlite (Kinoso), con dos correcciones verificadas.
-- #2648..#3280 desde el historial público paginado de LoterAtor.
+- #2648..#3280 desde ResultadosKinoChile (archivo HTML paginado + artículos).
 - #3281 NO se incorpora: queda como holdout externo.
+
+El script valida continuidad, 14 números únicos y rango 1..25.
 """
 import argparse
 import re
 import time
-from pathlib import Path
+from urllib.parse import urljoin
 
 import pandas as pd
 import requests
@@ -16,49 +18,109 @@ from bs4 import BeautifulSoup
 
 from kinofm_v4 import load_sqlite, validate_numbers
 
-BASE = "https://loterator.com/cl/kino/sorteos/"
+ARCHIVE = "https://www.resultadoskinochile.com/resultados-kino/"
+UA = {"User-Agent":"Mozilla/5.0 KinoFM-research/0.6"}
 
-def scrape_recent(min_draw=2648, max_draw=3280, max_pages=20, delay=0.15):
-    found = {}
+def get(session, url, retries=4):
+    last = None
+    for k in range(retries):
+        try:
+            r = session.get(url, timeout=30, headers=UA)
+            r.raise_for_status()
+            return r
+        except Exception as exc:
+            last = exc
+            time.sleep(0.5 * (k + 1))
+    raise last
+
+def collect_article_links(session, min_draw=2648, max_draw=3280, max_pages=140):
+    links = {}
     for page in range(1, max_pages + 1):
-        url = BASE if page == 1 else f"{BASE}?page={page}"
-        r = requests.get(url, timeout=30, headers={"User-Agent":"KinoFM-research/0.5"})
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, "html.parser")
-        parts = list(soup.stripped_strings)
+        url = ARCHIVE if page == 1 else f"{ARCHIVE}page/{page}/"
+        soup = BeautifulSoup(get(session, url).text, "html.parser")
         page_draws = []
-        i = 0
-        while i < len(parts):
-            if re.fullmatch(r"#\d+", parts[i]):
-                draw = int(parts[i][1:])
-                if i + 2 < len(parts) and re.fullmatch(r"\d{2}/\d{2}/\d{4}", parts[i+1]):
-                    nums = [int(x) for x in parts[i+2].split() if x.isdigit()]
-                    if len(nums) == 14:
-                        nums = validate_numbers(nums)
-                        page_draws.append((draw, parts[i+1], nums, url))
-                        if min_draw <= draw <= max_draw:
-                            found[draw] = (parts[i+1], nums, url)
-                        i += 3
-                        continue
-            i += 1
-        print(f"page={page} parsed={len(page_draws)} captured_total={len(found)}")
-        if page_draws and min(d for d, *_ in page_draws) <= min_draw:
+        for a in soup.find_all("a", href=True):
+            text = " ".join(a.stripped_strings)
+            m = re.search(r"sorteo\s+(\d+)", text, flags=re.I)
+            if not m:
+                continue
+            draw = int(m.group(1))
+            href = urljoin(url, a["href"])
+            page_draws.append(draw)
+            if min_draw <= draw <= max_draw:
+                links.setdefault(draw, href)
+        print(f"archive_page={page} draws={len(set(page_draws))} captured={len(links)}")
+        if page_draws and min(page_draws) <= min_draw:
             break
-        time.sleep(delay)
-    missing = [d for d in range(min_draw, max_draw + 1) if d not in found]
+        time.sleep(0.03)
+
+    missing = [d for d in range(min_draw, max_draw + 1) if d not in links]
     if missing:
-        raise RuntimeError(f"Faltan sorteos recientes ({len(missing)}): {missing[:30]}")
+        raise RuntimeError(f"Archivo sin links para {len(missing)} sorteos: {missing[:40]}")
+    return links
+
+def extract_main_kino(article_html):
+    soup = BeautifulSoup(article_html, "html.parser")
+    parts = list(soup.stripped_strings)
+
+    # Buscar candidatos "Kino" cuyo segmento inmediatamente posterior contenga
+    # exactamente una combinación válida antes de la siguiente categoría/heading.
+    for idx, token in enumerate(parts):
+        if token.strip().lower() != "kino":
+            continue
+        nums = []
+        for s in parts[idx+1:idx+80]:
+            # detener al entrar a tabla/categoría siguiente después de haber capturado números
+            low = s.lower()
+            if nums and ("nombre categoria" in low or "total categoría" in low or
+                         "ganador" in low or "rekino" == low or "requete" in low):
+                break
+            if re.fullmatch(r"\d{1,2}", s):
+                v = int(s)
+                if 1 <= v <= 25:
+                    nums.append(v)
+                    if len(nums) == 14:
+                        try:
+                            return validate_numbers(nums)
+                        except ValueError:
+                            break
+    raise ValueError("No se pudo extraer bloque Kino principal")
+
+def scrape_recent(min_draw=2648, max_draw=3280, max_pages=140):
+    session = requests.Session()
+    links = collect_article_links(session, min_draw, max_draw, max_pages)
     rows = []
-    for d in range(min_draw, max_draw + 1):
-        fecha, nums, src = found[d]
-        rows.append([d, fecha, *nums, src])
-    return pd.DataFrame(rows, columns=["sorteo","fecha",*[f"n{i}" for i in range(1,15)],"fuente"])
+    failures = []
+    for i, draw in enumerate(range(min_draw, max_draw + 1), start=1):
+        url = links[draw]
+        try:
+            r = get(session, url)
+            nums = extract_main_kino(r.text)
+            # fecha: preferimos la fecha del título/URL solo como metadato; el sorteo manda.
+            soup = BeautifulSoup(r.text, "html.parser")
+            text = " ".join(soup.stripped_strings[:80])
+            m = re.search(r"(\d{2}/\d{2}/\d{4})", text)
+            fecha = m.group(1) if m else ""
+            rows.append([draw, fecha, *nums, url])
+        except Exception as exc:
+            failures.append((draw, url, str(exc)))
+        if i % 50 == 0 or i == (max_draw-min_draw+1):
+            print(f"articles={i}/{max_draw-min_draw+1} ok={len(rows)} fail={len(failures)}")
+        time.sleep(0.02)
+
+    if failures:
+        raise RuntimeError(f"Fallaron {len(failures)} artículos. Primeros: {failures[:15]}")
+
+    return pd.DataFrame(
+        rows,
+        columns=["sorteo","fecha",*[f"n{i}" for i in range(1,15)],"fuente"]
+    )
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sqlite", required=True)
     ap.add_argument("--out", default="kino_current_799_3280.csv")
-    ap.add_argument("--max-pages", type=int, default=20)
+    ap.add_argument("--max-pages", type=int, default=140)
     args = ap.parse_args()
 
     old = load_sqlite(args.sqlite)
@@ -81,6 +143,7 @@ def main():
 
     merged.to_csv(args.out, index=False)
     print(f"OK: {len(merged)} sorteos continuos {merged.iloc[0].sorteo}..{merged.iloc[-1].sorteo}")
+    print(f"RECENT_ROWS={len(recent)}")
     print(f"OUT={args.out}")
 
 if __name__ == "__main__":
