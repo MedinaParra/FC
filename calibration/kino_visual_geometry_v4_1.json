@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "created_utc": "2026-09-20",
+  "purpose": "Dimensionless visual calibration of KinoCFDDEM geometry from public imagery and official draw-video traceability.",
+  "model_before": {
+    "globe_diameter_m": 0.5,
+    "ball_diameter_m": 0.04,
+    "globe_to_ball_diameter_ratio": 12.5,
+    "status": "surrogate_absolute_scale"
+  },
+  "observations": [
+    {
+      "id": "OBS-IMG-001",
+      "source_type": "public_still_from_loteria_youtube_capture",
+      "publisher": "La Republica",
+      "source_date": "2022-03-02",
+      "url": "https://larepublica.pe/mundo/loterias-sorteos/2022/03/02/kino-resultados-del-sorteo-2569-de-hoy-2-de-marzo-en-vivo-kino-cl-loteria-cl-resultados-kino-loteria-de-chile",
+      "image_url": "https://imgmedia.larepublica.pe/1000x590/larepublica/original/2022/03/02/62200536c97b7f495a66473f.webp",
+      "visual_description": "Front/near-front view of two transparent spherical Kino draw machines. Article explicitly credits the image as a capture from Loteria de Concepcion / YouTube.",
+      "quantity": "globe_diameter_over_ball_diameter",
+      "ratio": 12.6,
+      "sigma": 1.6,
+      "measurement_method": "manual visual pixel-ratio estimate from web-rendered source; conservative uncertainty includes perspective, acrylic rim and ball-edge ambiguity",
+      "quantitative": true
+    },
+    {
+      "id": "OBS-IMG-002",
+      "source_type": "public_studio_still",
+      "publisher": "Yogonet Latinoamerica",
+      "source_date": "2022-08-02",
+      "url": "https://www.yogonet.com/latinoamerica/temas/loteria-de-concepcion/",
+      "visual_description": "Studio view showing two transparent spherical draw machines branded Kino/Chao Jefe.",
+      "quantity": "globe_diameter_over_ball_diameter",
+      "ratio": 12.5,
+      "sigma": 1.6,
+      "measurement_method": "manual visual pixel-ratio estimate from web-rendered source; conservative uncertainty includes perspective and partial occlusion",
+      "quantitative": true
+    },
+    {
+      "id": "OBS-VIDEO-3279",
+      "source_type": "official_youtube_video",
+      "publisher": "Loteria de Concepcion",
+      "source_date": "2026-09-13",
+      "draw": 3279,
+      "url": "https://www.youtube.com/watch?v=DUY2JTgHvsQ",
+      "measurement_method": "traceability only in this iteration; direct frame bytes were not available to the numerical runtime",
+      "quantitative": false
+    },
+    {
+      "id": "OBS-OFFICIAL-RULES",
+      "source_type": "official_rules",
+      "publisher": "Loteria de Concepcion",
+      "url": "https://mc.loteria.cl/absolutenm/templates/PyR.aspx?articleid=868&zoneid=47",
+      "fact": "Kino draws 14 balls without replacement from 25 balls.",
+      "quantitative": false
+    },
+    {
+      "id": "OBS-TRANSPARENCY-2018",
+      "source_type": "institutional_annual_report",
+      "publisher": "Corporacion Universidad de Concepcion",
+      "year": 2018,
+      "url": "https://www.udec.cl/Memoria2018.pdf",
+      "fact": "Loteria reported adding pre-draw ball weighing, ball measurement and tombola loading to draw recordings.",
+      "quantitative": false
+    }
+  ],
+  "systematic_fraction_for_visual_ratio": 0.08,
+  "absolute_scale_anchor": null,
+  "absolute_scale_status": "not_identified",
+  "notes": [
+    "The two quantitative observations are not independent metrology-grade measurements; their agreement is used only to constrain a dimensionless ratio.",
+    "Do not infer real ball diameter from unrelated lottery standards.",
+    "Do not fit mass, diameter or friction to winning numbers.",
+    "A real dimensional anchor visible in the same camera plane is required before changing the absolute CFD-DEM scale."
+  ]
+}
