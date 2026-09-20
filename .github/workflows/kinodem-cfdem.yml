@@ -41,10 +41,11 @@ jobs:
         run: |
           docker pull hoehnp/docker-cfdem-pfm:latest
           docker run --rm \
+            --entrypoint /bin/bash \
             -v "$PWD:/work" \
             -w /work \
             hoehnp/docker-cfdem-pfm:latest \
-            bash -c '
+            -c '
               set -eo pipefail
               set +u
               source /opt/openfoam6/etc/bashrc
