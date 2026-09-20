@@ -23,10 +23,24 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p kino3279-pybalt/download
-          python3 -m pybalt \
-            'https://www.youtube.com/watch?v=Tl00yax-Aws' \
-            -vQ 480 -fp "$PWD/kino3279-pybalt/download" \
-            2>&1 | tee kino3279-pybalt/pybalt.log
+          python3 - <<'PY' 2>&1 | tee kino3279-pybalt/pybalt.log
+          import asyncio
+          from pathlib import Path
+          from pybalt import download
+
+          async def main():
+              out = await download(
+                  "https://www.youtube.com/watch?v=Tl00yax-Aws",
+                  videoQuality="480",
+                  folder_path=Path("kino3279-pybalt/download"),
+                  only_path=True,
+                  remux=False,
+              )
+              print("PYBALT_RESULT", out)
+              if out is None:
+                  raise SystemExit("PYBALT_RETURNED_NONE")
+          asyncio.run(main())
+          PY
           find kino3279-pybalt/download -maxdepth 1 -type f -printf '%p %s\n' | tee kino3279-pybalt/files.txt
           video=$(find kino3279-pybalt/download -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.webm' -o -iname '*.mkv' \) | head -n1)
           test -n "$video"
