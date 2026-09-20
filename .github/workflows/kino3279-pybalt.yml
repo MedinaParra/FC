@@ -17,7 +17,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
-          python3 -m pip install --user -U pybalt opencv-python-headless numpy pandas matplotlib
+          python3 -m pip install --user -U pybalt python-dotenv aiohttp aiofiles opencv-python-headless numpy pandas matplotlib
 
       - name: Download official Kino 3279 through public Cobalt instances
         run: |
