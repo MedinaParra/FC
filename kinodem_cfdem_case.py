@@ -329,6 +329,7 @@ depth 0;
 voidFractionModel IB;
 locateModel engineIB;
 meshMotionModel noMeshMotion;
+regionModel allRegion;
 dataExchangeModel twoWayMPI;
 IOModel basicIO;
 probeModel off;
@@ -345,10 +346,12 @@ turbulenceModelType turbulenceProperties;
 
 ShirgaonkarIBProps
 {{
+    velFieldName "U";
     pressureFieldName "p";
 }}
 ArchimedesIBProps
 {{
+    gravityFieldName "g";
     voidfractionFieldName "voidfractionNext";
 }}
 twoWayFilesProps
@@ -369,7 +372,10 @@ IBProps
 }}
 engineIBProps
 {{
-    treeSearch false;
+    engineProps
+    {{
+        treeSearch false;
+    }}
     zSplit 8;
     xySplit 16;
 }}
