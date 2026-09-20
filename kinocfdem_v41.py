@@ -68,8 +68,8 @@ def validate_v41_case(root: str | Path) -> dict:
     base = validate_v4_case(root)
     manifest = json.loads((root / "case_manifest.json").read_text(encoding="utf-8"))
     cal = manifest.get("machine_calibration", {})
-    if manifest.get("model") != "KinoCFDDEM v4.1 screenshot-calibrated baseline":
-        raise ValueError("v4.1 manifest marker missing")
+    if manifest.get("variant") != "KinoCFDDEM v4.1 screenshot-calibrated baseline":
+        raise ValueError("v4.1 variant marker missing")
     if cal.get("wall_motion") != "stationary":
         raise ValueError("v4.1 real-machine baseline must be stationary")
     if float(manifest["config"]["omega_rad_s"]) != 0.0:
