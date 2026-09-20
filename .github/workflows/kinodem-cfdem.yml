@@ -32,9 +32,12 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare writable workspace
-        run: chmod -R a+rwX .
-      - name: Generate and run coupled OpenFOAM-LIGGGHTS smoke case
+      - name: Generate coupled case on host
+        run: |
+          python3 -m pip install --user numpy
+          python3 kinodem_cfdem_case.py --out ci-cfdem-runtime --end-time 0.002 --base-cells 16
+          chmod -R a+rwX ci-cfdem-runtime
+      - name: Run coupled OpenFOAM-LIGGGHTS smoke case
         run: |
           docker pull hoehnp/docker-cfdem-pfm:latest
           docker run --rm \
@@ -42,22 +45,16 @@ jobs:
             -w /work \
             hoehnp/docker-cfdem-pfm:latest \
             bash -lc '
-              set -euxo pipefail
-              whoami
-              echo "HOME=$HOME"
-              python3 --version
+              set -eo pipefail
+              set +u
               source /opt/openfoam6/etc/bashrc
-              export CFDEM_PROJECT_DIR=/home/cfdem/CFDEM/CFDEMcoupling
-              export CFDEM_SRC_DIR=$CFDEM_PROJECT_DIR/src
-              export CFDEM_PROJECT_USER_DIR=/home/cfdem/CFDEM/cfdem-PUBLIC-6
-              export CFDEM_LIGGGHTS_SRC_DIR=/home/cfdem/CFDEM/LIGGGHTS/src
-              source /home/cfdem/CFDEM/CFDEMcoupling/etc/bashrc || true
+              source /home/cfdem/CFDEM/CFDEMcoupling/etc/bashrc
+              set -u
               which blockMesh
               which snappyHexMesh
               which cfdemSolverIB
-              python3 kinodem_cfdem_case.py --out ci-cfdem-runtime --end-time 0.002 --base-cells 16
-              chmod +x ci-cfdem-runtime/Allrun.sh
-              cd ci-cfdem-runtime
+              cd /work/ci-cfdem-runtime
+              chmod +x Allrun.sh
               ./Allrun.sh
             '
       - name: Collect runtime evidence
