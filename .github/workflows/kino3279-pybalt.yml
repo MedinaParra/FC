@@ -1,0 +1,109 @@
+name: Download Kino 3279 via Pybalt Cobalt
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/kino3279-pybalt.yml'
+  workflow_dispatch:
+
+jobs:
+  download-calibrate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python3 -m pip install --user -U pybalt opencv-python-headless numpy pandas matplotlib
+
+      - name: Download official Kino 3279 through public Cobalt instances
+        run: |
+          set -euo pipefail
+          mkdir -p kino3279-pybalt/download
+          python3 -m pybalt \
+            'https://www.youtube.com/watch?v=Tl00yax-Aws' \
+            -vQ 480 -fp "$PWD/kino3279-pybalt/download" \
+            2>&1 | tee kino3279-pybalt/pybalt.log
+          find kino3279-pybalt/download -maxdepth 1 -type f -printf '%p %s\n' | tee kino3279-pybalt/files.txt
+          video=$(find kino3279-pybalt/download -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.webm' -o -iname '*.mkv' \) | head -n1)
+          test -n "$video"
+          ffmpeg -y -loglevel warning -i "$video" -an -c:v libx264 -preset veryfast -crf 23 kino3279-pybalt/source.mp4
+          ffprobe -v error -show_entries format=duration,size:stream=width,height,r_frame_rate,avg_frame_rate,codec_name \
+            -of json kino3279-pybalt/source.mp4 > kino3279-pybalt/video_probe.json
+          sha256sum kino3279-pybalt/source.mp4 | tee kino3279-pybalt/source.sha256
+
+      - name: Coarse scan at 1 fps for chamber-rich intervals
+        run: |
+          set -euo pipefail
+          mkdir -p kino3279-pybalt/coarse
+          ffmpeg -y -loglevel warning -i kino3279-pybalt/source.mp4 -vf fps=1 kino3279-pybalt/coarse/f_%05d.jpg
+          python3 - <<'PY'
+          from pathlib import Path
+          import cv2, json
+          from kino_frame_calibration import detect_chambers, ball_circles
+          hits=[]
+          for p in sorted(Path('kino3279-pybalt/coarse').glob('f_*.jpg')):
+              sec=int(p.stem.split('_')[1])-1
+              im=cv2.imread(str(p))
+              if im is None: continue
+              best=None
+              for c in detect_chambers(im):
+                  balls=ball_circles(im,c)
+                  n=len(balls)
+                  if best is None or n>best['score']:
+                      best={'second':sec,'score':n,'chamber':[float(x) for x in c]}
+              if best and best['score']>=5:
+                  hits.append(best)
+          Path('kino3279-pybalt/coarse_hits.json').write_text(json.dumps(hits,indent=2))
+          clusters=[]
+          if hits:
+              secs=[x['second'] for x in hits]
+              a=b=secs[0]
+              for s in secs[1:]:
+                  if s-b>4:
+                      clusters.append((a,b)); a=s
+                  b=s
+              clusters.append((a,b))
+          Path('kino3279-pybalt/clusters.json').write_text(json.dumps(clusters,indent=2))
+          print('COARSE_HITS',len(hits),'CLUSTERS',clusters)
+          PY
+
+      - name: Calibrate best chamber interval frame-by-frame
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib
+          clusters=json.loads(pathlib.Path('kino3279-pybalt/clusters.json').read_text())
+          if not clusters:
+              raise SystemExit('NO_CHAMBER_CLUSTER')
+          # Longest cluster, padded by 2 s but capped to a 90 s calibration window.
+          a,b=max(clusters,key=lambda z:z[1]-z[0])
+          start=max(0,a-2); end=min(b+3,start+90)
+          pathlib.Path('kino3279-pybalt/interval.txt').write_text(f'{start} {end}\n')
+          print('CALIBRATION_INTERVAL',start,end)
+          PY
+          read start end < kino3279-pybalt/interval.txt
+          python3 kino_frame_calibration.py kino3279-pybalt/source.mp4 \
+            --outdir kino3279-pybalt/results \
+            --start-s "$start" --end-s "$end" \
+            --redetect-every 10 --block-s 1.0 \
+            | tee kino3279-pybalt/calibration.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kino3279-pybalt-frame-calibration
+          compression-level: 6
+          path: |
+            kino3279-pybalt/pybalt.log
+            kino3279-pybalt/files.txt
+            kino3279-pybalt/video_probe.json
+            kino3279-pybalt/source.sha256
+            kino3279-pybalt/coarse_hits.json
+            kino3279-pybalt/clusters.json
+            kino3279-pybalt/interval.txt
+            kino3279-pybalt/calibration.log
+            kino3279-pybalt/results/
