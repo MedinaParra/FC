@@ -35,7 +35,7 @@ jobs:
       - name: Generate coupled case on host
         run: |
           python3 -m pip install --user numpy
-          python3 kinodem_cfdem_case.py --out ci-cfdem-runtime --end-time 0.002 --base-cells 16
+          python3 kinodem_cfdem_case.py --out ci-cfdem-runtime --end-time 0.02 --base-cells 16
           chmod -R a+rwX ci-cfdem-runtime
       - name: Run coupled OpenFOAM-LIGGGHTS smoke case
         run: |
