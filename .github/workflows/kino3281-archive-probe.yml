@@ -1,0 +1,67 @@
+name: Probe archives for Kino 3281 video
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/kino3281-archive-probe.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe Wayback, Internet Archive and Ghostarchive
+        run: |
+          set +e
+          mkdir -p archive-probe
+          id='nf_0MJG9Aaw'
+          : > archive-probe/status.txt
+
+          urls=(
+            "https://web.archive.org/web/2oe_/http://wayback-fakeurl.archive.org/yt/$id"
+            "https://ghostarchive.org/varchive/$id"
+            "https://ghostarchive.org/varchive/youtube/$id"
+          )
+          n=0
+          for url in "${urls[@]}"; do
+            n=$((n+1))
+            echo "=== $url ===" | tee -a archive-probe/status.txt
+            code=$(curl -L -A 'Mozilla/5.0' -sS --connect-timeout 10 --max-time 90 \
+              -D "archive-probe/h${n}.txt" \
+              -o "archive-probe/body${n}.bin" -w '%{http_code}' "$url" || true)
+            size=$(stat -c%s "archive-probe/body${n}.bin" 2>/dev/null || echo 0)
+            mime=$(file -b --mime-type "archive-probe/body${n}.bin" 2>/dev/null || true)
+            echo "HTTP=$code SIZE=$size MIME=$mime" | tee -a archive-probe/status.txt
+            head -c 500 "archive-probe/body${n}.bin" 2>/dev/null | strings | head -n10 | tee -a archive-probe/status.txt
+          done
+
+          echo '=== archive.org advanced search ===' | tee -a archive-probe/status.txt
+          curl -L -sS --connect-timeout 10 --max-time 60 \
+            --get 'https://archive.org/advancedsearch.php' \
+            --data-urlencode "q=$id" \
+            --data-urlencode 'fl[]=identifier' \
+            --data-urlencode 'fl[]=title' \
+            --data-urlencode 'fl[]=mediatype' \
+            --data-urlencode 'rows=50' \
+            --data-urlencode 'output=json' \
+            -o archive-probe/archive_search.json || true
+          cat archive-probe/archive_search.json 2>/dev/null | head -c 5000 | tee -a archive-probe/status.txt
+          echo | tee -a archive-probe/status.txt
+
+          echo '=== Wayback CDX ===' | tee -a archive-probe/status.txt
+          curl -k -L -sS --connect-timeout 10 --max-time 60 \
+            --get 'https://web.archive.org/cdx/search/cdx' \
+            --data-urlencode "url=youtube.com/watch?v=$id" \
+            --data-urlencode 'output=json' \
+            --data-urlencode 'filter=statuscode:200' \
+            --data-urlencode 'fl=timestamp,original,mimetype,statuscode,digest,length' \
+            -o archive-probe/cdx.json || true
+          cat archive-probe/cdx.json 2>/dev/null | head -c 10000 | tee -a archive-probe/status.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kino3281-archive-probe
+          path: archive-probe/
