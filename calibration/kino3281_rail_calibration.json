@@ -1,0 +1,112 @@
+{
+  "schema": "KinoCFDDEM-v4.1-projected-rail-calibration",
+  "source": {
+    "file": "10481.jpg",
+    "sha256": "2f4fb77e9565586abed62f0973da63ada7fa08320d939f740e6e9ba3cf42a85d"
+  },
+  "detections": [
+    {
+      "x_px": 914.5,
+      "y_px": 233.5,
+      "hough_r_px": 24.299999237060547,
+      "yellow_fill": 1
+    },
+    {
+      "x_px": 895.5,
+      "y_px": 210.5,
+      "hough_r_px": 22,
+      "yellow_fill": 1
+    },
+    {
+      "x_px": 849.5,
+      "y_px": 164.5,
+      "hough_r_px": 18.100000381469727,
+      "yellow_fill": 1
+    },
+    {
+      "x_px": 962.5,
+      "y_px": 428.5,
+      "hough_r_px": 16.600000381469727,
+      "yellow_fill": 1
+    },
+    {
+      "x_px": 943.5,
+      "y_px": 296.5,
+      "hough_r_px": 24.299999237060547,
+      "yellow_fill": 0.9980842911877394
+    },
+    {
+      "x_px": 872.5,
+      "y_px": 186.5,
+      "hough_r_px": 18,
+      "yellow_fill": 1
+    },
+    {
+      "x_px": 956.5,
+      "y_px": 462.5,
+      "hough_r_px": 14.100000381469727,
+      "yellow_fill": 0.9310344827586207
+    },
+    {
+      "x_px": 929.5,
+      "y_px": 264.5,
+      "hough_r_px": 20.799999237060547,
+      "yellow_fill": 1
+    },
+    {
+      "x_px": 957.5,
+      "y_px": 390.5,
+      "hough_r_px": 23.200000762939453,
+      "yellow_fill": 0.782563025210084
+    }
+  ],
+  "rail_center_path": {
+    "center_x_px": 656.8815234545075,
+    "center_y_px": 400.7488913955413,
+    "radius_px": 304.9441685160556,
+    "median_abs_residual_px": 0.9715566458286844,
+    "rms_residual_px": 1.7582766081437713
+  },
+  "pitch": {
+    "all_arc_intervals_px": [
+      31.88840579539073,
+      33.27667534714994,
+      29.661165381149214,
+      34.260552837239715,
+      34.95440098991699,
+      95.98588611747236,
+      38.0064914371153,
+      34.366719560630386
+    ],
+    "accepted_local_intervals_px": [
+      31.88840579539073,
+      33.27667534714994,
+      29.661165381149214,
+      34.260552837239715,
+      34.95440098991699,
+      38.0064914371153,
+      34.366719560630386
+    ],
+    "local_pitch_px": 34.260552837239715,
+    "local_pitch_std_px": 2.601716884426612,
+    "angular_pitch_deg": 6.437195014783307,
+    "rail_radius_over_local_pitch": 8.900736948546689
+  },
+  "reference_outer_chamber": {
+    "center_x_px": 683.4000244140625,
+    "center_y_px": 382.20001220703125,
+    "radius_px": 282.8399963378906
+  },
+  "derived": {
+    "rail_radius_over_visible_outer_chamber_radius": 1.078150800680108,
+    "rail_center_offset_px": 32.36188826832979,
+    "rail_center_offset_over_local_pitch": 0.9445816132060146,
+    "fourteen_center_span_if_local_pitch_persisted_deg": 83.68353519218299
+  },
+  "limits": [
+    "broadcast perspective projection, not a 3D dimensional survey",
+    "local pitch is not asserted to equal true ball diameter",
+    "14-ball angular span is an extrapolation, not a measured full-rail endpoint",
+    "no millimetre scale has been inferred"
+  ]
+}
