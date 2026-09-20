@@ -26,15 +26,27 @@ jobs:
           python3 - <<'PY' 2>&1 | tee kino3279-pybalt/pybalt.log
           import asyncio
           from pathlib import Path
-          from pybalt import download
+          from pybalt.core.wrapper import InstanceManager
 
           async def main():
-              out = await download(
+              manager = InstanceManager(debug=True)
+              instances = await manager.fetch_instances(filter_online=True)
+              print("PUBLIC_INSTANCES", len(instances))
+              yt = []
+              for x in instances:
+                  works = x.service_works("youtube")
+                  if works:
+                      yt.append(x.api_url)
+              print("YOUTUBE_INSTANCES", len(yt))
+              for url in yt[:30]:
+                  print("YT_INSTANCE", url)
+              out = await manager.download(
                   "https://www.youtube.com/watch?v=Tl00yax-Aws",
                   videoQuality="480",
                   folder_path=Path("kino3279-pybalt/download"),
                   only_path=True,
                   remux=False,
+                  max_retries=2,
               )
               print("PYBALT_RESULT", out)
               if out is None:
