@@ -1,0 +1,33 @@
+name: Kino official video Selenium probe
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - 'youtube_selenium_probe.py'
+      - '.github/workflows/kino-youtube-selenium-probe.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Python deps
+        run: python3 -m pip install --user selenium pillow
+      - name: Probe official video frames in Chrome
+        run: |
+          mkdir -p youtube-probe
+          python3 youtube_selenium_probe.py \
+            --video-id DUY2JTgHvsQ \
+            --outdir youtube-probe \
+            --n 36 \
+            | tee youtube-probe/probe.log
+      - name: Upload probe frames
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kino3279-youtube-selenium-probe
+          compression-level: 6
+          path: youtube-probe/
