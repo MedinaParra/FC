@@ -1,0 +1,66 @@
+name: KinoCFDDEM v4 long video run
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4]
+    paths:
+      - '.github/workflows/kinocfdem-v4-video.yml'
+  workflow_dispatch:
+
+jobs:
+  long-coupled-video:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate 0.2 s coupled case
+        run: |
+          python3 -m pip install --user numpy
+          python3 kinocfdem_v4.py generate \
+            --out ci-kinocfdem-v4-long \
+            --end-time 0.2 \
+            --base-cells 16
+          # Save CFD fields every 5 ms instead of every 1 ms to limit artifact size.
+          sed -i 's/writeInterval   10;/writeInterval   50;/' \
+            ci-kinocfdem-v4-long/CFD/system/controlDict
+          chmod -R a+rwX ci-kinocfdem-v4-long
+      - name: Run OpenFOAM-CFDEM-LIGGGHTS for 0.2 s
+        run: |
+          docker pull hoehnp/docker-cfdem-pfm:latest
+          docker run --rm \
+            --entrypoint /bin/bash \
+            -e BASH_ENV= \
+            -v "$PWD:/work" \
+            -w /work \
+            hoehnp/docker-cfdem-pfm:latest \
+            --noprofile --norc -c '
+              set +u
+              source /opt/openfoam6/etc/bashrc
+              source /home/cfdem/CFDEM/CFDEMcoupling/etc/bashrc
+              set -u
+              cd /work/ci-kinocfdem-v4-long
+              bash Allrun.sh
+            '
+      - name: Validate long DEM trajectory
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("ci-kinocfdem-v4-long/DEM/post/dump.liggghts_run")
+          txt=p.read_text(errors="replace")
+          steps=[]
+          lines=txt.splitlines()
+          for i,line in enumerate(lines):
+              if line.strip()=="ITEM: TIMESTEP":
+                  steps.append(int(lines[i+1]))
+          assert steps[0]==0
+          assert steps[-1]>=20000
+          assert len(steps)>=201
+          print("DEM_FRAMES",len(steps),"LAST_STEP",steps[-1])
+          PY
+      - name: Upload real coupled trajectory
+        uses: actions/upload-artifact@v4
+        with:
+          name: kinocfdem-v4-long-0p2s
+          compression-level: 6
+          path: |
+            ci-kinocfdem-v4-long/
