@@ -40,7 +40,7 @@ def write_v41_case(
     root = Path(root)
     manifest_path = root / "case_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    manifest["model"] = "KinoCFDDEM v4.1 screenshot-calibrated baseline"
+    manifest["variant"] = "KinoCFDDEM v4.1 screenshot-calibrated baseline"
     manifest["machine_calibration"] = {
         "evidence": str(CALIBRATION_FILE),
         "draw": 3281,
