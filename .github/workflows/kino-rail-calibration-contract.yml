@@ -1,0 +1,35 @@
+name: Kino rail calibration contract
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - 'kino_rail_calibration.py'
+      - 'tests/test_kino_rail_calibration.py'
+      - 'calibration/kino3281_rail_calibration.json'
+      - '.github/workflows/kino-rail-calibration-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install --user pytest numpy opencv-python-headless
+      - run: PYTHONPATH=. pytest -q tests/test_kino_rail_calibration.py
+      - name: Validate stored rail calibration contract
+        run: |
+          python3 - <<'PY'
+          import json
+          p=json.load(open('calibration/kino3281_rail_calibration.json'))
+          assert p['schema']=='KinoCFDDEM-v4.1-projected-rail-calibration'
+          assert len(p['detections'])==9
+          assert p['rail_center_path']['median_abs_residual_px'] < 2.0
+          assert 8.0 < p['pitch']['rail_radius_over_local_pitch'] < 10.0
+          assert 'no millimetre scale has been inferred' in p['limits']
+          print(json.dumps({
+            'R_px':p['rail_center_path']['radius_px'],
+            'pitch_px':p['pitch']['local_pitch_px'],
+            'R_over_pitch':p['pitch']['rail_radius_over_local_pitch']
+          },indent=2))
+          PY
