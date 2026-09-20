@@ -1,0 +1,100 @@
+name: Retrieve Kino video through Invidious
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/retrieve-kino-invidious.yml'
+  workflow_dispatch:
+
+jobs:
+  retrieve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg jq
+          python3 -m pip install --user opencv-python-headless numpy pandas matplotlib
+      - name: Resolve Invidious stream
+        run: |
+          set -euo pipefail
+          mkdir -p invidious-retrieval
+          id=DUY2JTgHvsQ
+          instances=(
+            https://inv.nadeko.net
+            https://invidious.nerdvpn.de
+            https://yt.chocolatemoo53.com
+            https://invidious.tiekoetter.com
+          )
+          resolved=''
+          for host in "${instances[@]}"; do
+            echo "TRY $host" | tee -a invidious-retrieval/status.txt
+            tmp="invidious-retrieval/video.json"
+            code=$(curl -L -A 'Mozilla/5.0' --connect-timeout 10 --max-time 60 -sS -o "$tmp" -w '%{http_code}' "$host/api/v1/videos/$id" || true)
+            echo "HTTP=$code SIZE=$(stat -c%s "$tmp" 2>/dev/null || echo 0)" | tee -a invidious-retrieval/status.txt
+            if [ "$code" = "200" ]; then
+              url=$(jq -r '[.formatStreams[]? | select(.container=="mp4") | select((.qualityLabel // "0p" | sub("p.*";"") | tonumber) <= 480)] | sort_by(.qualityLabel | sub("p.*";"") | tonumber) | reverse | .[0].url // empty' "$tmp" 2>/dev/null || true)
+              if [ -z "$url" ]; then
+                url=$(jq -r '.formatStreams[0].url // empty' "$tmp" 2>/dev/null || true)
+              fi
+              if [ -n "$url" ]; then
+                echo "RESOLVED_HOST=$host" | tee -a invidious-retrieval/status.txt
+                jq '{title,lengthSeconds,author,formatStreams:[.formatStreams[]? | {qualityLabel,container,type,url}]}' "$tmp" > invidious-retrieval/resolved_metadata.json
+                printf '%s' "$url" > invidious-retrieval/stream_url.txt
+                resolved="$url"
+                break
+              fi
+            fi
+          done
+          test -n "$resolved"
+      - name: Download resolved video
+        run: |
+          set -euo pipefail
+          url=$(cat invidious-retrieval/stream_url.txt)
+          ffmpeg -y -loglevel warning -user_agent 'Mozilla/5.0' -i "$url" -an -c:v copy invidious-retrieval/kino3279.mp4
+          ffprobe -v error -show_entries format=duration,size:stream=width,height,r_frame_rate,avg_frame_rate,codec_name -of json invidious-retrieval/kino3279.mp4 > invidious-retrieval/video_probe.json
+      - name: Coarse chamber scan
+        run: |
+          mkdir -p invidious-retrieval/coarse
+          ffmpeg -y -loglevel warning -i invidious-retrieval/kino3279.mp4 -vf fps=1 invidious-retrieval/coarse/f_%05d.jpg
+          python3 - <<'PY'
+          from pathlib import Path
+          import cv2, json
+          from kino_frame_calibration import detect_chambers, ball_circles
+          hits=[]
+          for p in sorted(Path('invidious-retrieval/coarse').glob('f_*.jpg')):
+              sec=int(p.stem.split('_')[1])-1
+              im=cv2.imread(str(p))
+              best=None
+              for c in detect_chambers(im):
+                  n=len(ball_circles(im,c))
+                  if best is None or n>best['score']:
+                      best={'second':sec,'score':n,'chamber':[float(x) for x in c]}
+              if best and best['score']>=5:
+                  hits.append(best)
+          Path('invidious-retrieval/coarse_hits.json').write_text(json.dumps(hits,indent=2))
+          print('COARSE_HITS',len(hits))
+          if hits:
+              secs=[x['second'] for x in hits]
+              clusters=[]; a=b=secs[0]
+              for s in secs[1:]:
+                  if s-b>4:
+                      clusters.append((a,b)); a=s
+                  b=s
+              clusters.append((a,b))
+              print('CLUSTERS',clusters)
+          PY
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kino3279-invidious-retrieval
+          compression-level: 6
+          path: |
+            invidious-retrieval/status.txt
+            invidious-retrieval/resolved_metadata.json
+            invidious-retrieval/video_probe.json
+            invidious-retrieval/coarse_hits.json
