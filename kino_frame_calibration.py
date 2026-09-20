@@ -14,7 +14,7 @@ Outputs:
   contact_sheet.jpg
 """
 from __future__ import annotations
-import argparse, json, math
+import argparse, hashlib, json, math
 from pathlib import Path
 
 import cv2
@@ -138,26 +138,79 @@ def annotate(frame,chamber,balls,row):
     return im
 
 
+def sha256_file(path, chunk=1024*1024):
+    h=hashlib.sha256()
+    with open(path,"rb") as fh:
+        while True:
+            b=fh.read(chunk)
+            if not b: break
+            h.update(b)
+    return h.hexdigest()
+
+
+def block_statistics(accepted, block_s=1.0):
+    if accepted.empty:
+        return pd.DataFrame(columns=[
+            "block","start_s","end_s","n_frames","median_ratio",
+            "weighted_mean_ratio","median_quality"
+        ])
+    z=accepted.copy()
+    z["block"]=np.floor(z["time_s"]/block_s).astype(int)
+    rows=[]
+    for b,g in z.groupby("block"):
+        w=np.clip(g["quality"].to_numpy(float),0.05,None)
+        v=g["ratio"].to_numpy(float)
+        rows.append({
+            "block":int(b),
+            "start_s":float(b*block_s),
+            "end_s":float((b+1)*block_s),
+            "n_frames":int(len(g)),
+            "median_ratio":float(np.median(v)),
+            "weighted_mean_ratio":float(np.average(v,weights=w)),
+            "median_quality":float(np.median(g["quality"])),
+        })
+    return pd.DataFrame(rows)
+
+
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("video")
     ap.add_argument("--outdir",default="frame-calibration")
     ap.add_argument("--redetect-every",type=int,default=10)
-    ap.add_argument("--max-seconds",type=float,default=0.0)
+    ap.add_argument("--max-seconds",type=float,default=0.0,
+                    help="Legacy relative duration cap from --start-s")
+    ap.add_argument("--start-s",type=float,default=0.0)
+    ap.add_argument("--end-s",type=float,default=0.0,
+                    help="Absolute end time; 0 means end of video")
+    ap.add_argument("--block-s",type=float,default=1.0,
+                    help="Temporal block size for correlation-aware summary")
     args=ap.parse_args()
+    if args.start_s < 0 or args.end_s < 0 or args.block_s <= 0:
+        raise ValueError("start/end must be non-negative and block-s positive")
+    if args.end_s and args.end_s <= args.start_s:
+        raise ValueError("--end-s must be greater than --start-s")
 
     out=Path(args.outdir); (out/"annotated").mkdir(parents=True,exist_ok=True)
     cap=cv2.VideoCapture(args.video)
     if not cap.isOpened(): raise RuntimeError("Cannot open video")
     fps=float(cap.get(cv2.CAP_PROP_FPS) or 30.0)
     n_total=int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    rows=[]; previous=None; cached_balls=[]; frame_idx=0
+    source_sha256=sha256_file(args.video)
+    start_frame=max(0,int(round(args.start_s*fps)))
+    if start_frame:
+        cap.set(cv2.CAP_PROP_POS_FRAMES,start_frame)
+    frame_idx=start_frame
+    effective_end=args.end_s
+    if args.max_seconds:
+        legacy_end=args.start_s+args.max_seconds
+        effective_end=min(effective_end,legacy_end) if effective_end else legacy_end
+    rows=[]; previous=None; cached_balls=[]
 
     while True:
         ok,frame=cap.read()
         if not ok: break
         t=frame_idx/fps
-        if args.max_seconds and t>args.max_seconds: break
+        if effective_end and t>effective_end: break
 
         need_detect=(frame_idx % args.redetect_every==0) or previous is None
         if need_detect:
@@ -209,6 +262,8 @@ def main():
         df.loc[accepted.index,"accepted"]=True
 
     df.to_csv(out/"frame_measurements.csv",index=False)
+    blocks=block_statistics(accepted,args.block_s)
+    blocks.to_csv(out/"block_measurements.csv",index=False)
 
     if len(accepted):
         vals=accepted["ratio"].to_numpy(float)
@@ -218,20 +273,34 @@ def main():
         med=float(np.median(vals))
         q25,q75=np.quantile(vals,[0.25,0.75])
         # Frame correlation inflates sample size; report dispersion, not naive SEM.
+        block_vals=blocks["median_ratio"].to_numpy(float)
         summary={
-            "video":str(args.video),"fps":fps,"frames_total_processed":len(df),
+            "video":str(args.video),"source_sha256":source_sha256,
+            "fps":fps,"source_total_frames":n_total,
+            "start_s":args.start_s,"end_s":effective_end or None,
+            "frames_total_processed":len(df),
             "accepted_frames":len(accepted),
             "accepted_fraction":len(accepted)/max(1,len(df)),
             "weighted_mean_ratio":mean,"median_ratio":med,
             "frame_to_frame_std":std,"iqr":[float(q25),float(q75)],
             "min_ratio":float(vals.min()),"max_ratio":float(vals.max()),
+            "block_s":args.block_s,
+            "accepted_blocks":int(len(blocks)),
+            "block_median_ratio":float(np.median(block_vals)),
+            "block_std_ratio":float(np.std(block_vals,ddof=1)) if len(block_vals)>1 else 0.0,
+            "block_iqr":[float(x) for x in np.quantile(block_vals,[0.25,0.75])],
             "absolute_scale_status":"not_identified",
             "note":"Consecutive video frames are correlated; frame count is not treated as independent metrology samples."
         }
     else:
         summary={
-            "video":str(args.video),"fps":fps,"frames_total_processed":len(df),
-            "accepted_frames":0,"absolute_scale_status":"not_identified",
+            "video":str(args.video),"source_sha256":source_sha256,
+            "fps":fps,"source_total_frames":n_total,
+            "start_s":args.start_s,"end_s":effective_end or None,
+            "frames_total_processed":len(df),
+            "accepted_frames":0,"accepted_blocks":0,
+            "block_s":args.block_s,
+            "absolute_scale_status":"not_identified",
             "note":"No frames passed automatic quality gates; inspect diagnostics before changing thresholds."
         }
     (out/"frame_summary.json").write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
