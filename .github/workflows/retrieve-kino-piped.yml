@@ -1,0 +1,105 @@
+name: Retrieve Kino video through Piped
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/retrieve-kino-piped.yml'
+  workflow_dispatch:
+
+jobs:
+  retrieve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg jq
+          python3 -m pip install --user opencv-python-headless numpy pandas matplotlib
+      - name: Resolve a Piped stream
+        run: |
+          set -euo pipefail
+          mkdir -p piped-retrieval
+          id=DUY2JTgHvsQ
+          instances=(
+            https://pipedapi.kavin.rocks
+            https://pipedapi.leptons.xyz
+            https://piped-api.privacy.com.de
+            https://pipedapi.adminforge.de
+            https://api.piped.yt
+            https://api.piped.private.coffee
+          )
+          resolved=''
+          for api in "${instances[@]}"; do
+            echo "TRY $api" | tee -a piped-retrieval/status.txt
+            if curl -fsSL --connect-timeout 10 --max-time 45 "$api/streams/$id" -o piped-retrieval/streams.json; then
+              title=$(jq -r '.title // empty' piped-retrieval/streams.json)
+              url=$(jq -r '[.videoStreams[]? | select(.format=="MPEG_4" or .format=="WEBM") | select(.height<=480)] | sort_by(.height) | reverse | .[0].url // empty' piped-retrieval/streams.json)
+              if [ -z "$url" ]; then
+                url=$(jq -r '.videoStreams[0].url // empty' piped-retrieval/streams.json)
+              fi
+              if [ -n "$url" ]; then
+                echo "RESOLVED_API=$api" | tee -a piped-retrieval/status.txt
+                echo "TITLE=$title" | tee -a piped-retrieval/status.txt
+                printf '%s' "$url" > piped-retrieval/stream_url.txt
+                resolved="$url"
+                break
+              fi
+            fi
+          done
+          test -n "$resolved"
+      - name: Download low-resolution official video stream
+        run: |
+          set -euo pipefail
+          url=$(cat piped-retrieval/stream_url.txt)
+          ffmpeg -y -loglevel warning -i "$url" -an -c:v copy piped-retrieval/kino3279_video.mp4
+          ffprobe -v error -show_entries format=duration,size:stream=width,height,r_frame_rate,avg_frame_rate,codec_name -of json piped-retrieval/kino3279_video.mp4 > piped-retrieval/video_probe.json
+          ls -lh piped-retrieval/kino3279_video.mp4
+      - name: Coarse scan at 1 fps for chamber-rich intervals
+        run: |
+          mkdir -p piped-retrieval/coarse
+          ffmpeg -y -loglevel warning -i piped-retrieval/kino3279_video.mp4 -vf fps=1 piped-retrieval/coarse/f_%05d.jpg
+          python3 - <<'PY'
+          from pathlib import Path
+          import cv2, json, math
+          import numpy as np
+          from kino_frame_calibration import detect_chambers, ball_circles
+          out=[]
+          for p in sorted(Path('piped-retrieval/coarse').glob('f_*.jpg')):
+              idx=int(p.stem.split('_')[1])-1
+              im=cv2.imread(str(p))
+              best=None
+              for c in detect_chambers(im):
+                  balls=ball_circles(im,c)
+                  score=len(balls)
+                  if best is None or score>best['score']:
+                      best={'second':idx,'score':score,'chamber':[float(x) for x in c]}
+              if best and best['score']>=5:
+                  out.append(best)
+          Path('piped-retrieval/coarse_hits.json').write_text(json.dumps(out,indent=2))
+          print('COARSE_HITS',len(out))
+          if out:
+              print('FIRST_LAST',out[0]['second'],out[-1]['second'])
+              # Print compact candidate clusters.
+              secs=[x['second'] for x in out]
+              clusters=[]; start=prev=secs[0]
+              for s in secs[1:]:
+                  if s-prev>4:
+                      clusters.append((start,prev)); start=s
+                  prev=s
+              clusters.append((start,prev))
+              print('CLUSTERS',clusters)
+          PY
+      - name: Upload retrieval diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kino3279-piped-retrieval
+          compression-level: 6
+          path: |
+            piped-retrieval/status.txt
+            piped-retrieval/streams.json
+            piped-retrieval/video_probe.json
+            piped-retrieval/coarse_hits.json
