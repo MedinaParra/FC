@@ -1,0 +1,103 @@
+name: KinoCFDDEM v4
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4]
+  workflow_dispatch:
+
+concurrency:
+  group: kinocfdem-v4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy pytest
+      - name: Run v3 regression and v4 capture tests
+        run: |
+          PYTHONPATH=. pytest -q \
+            tests/test_kinodem_cfdem_case.py \
+            tests/test_kinocfdem_v4.py
+      - name: Generate v4 case
+        run: |
+          python kinocfdem_v4.py generate \
+            --out ci-kinocfdem-v4 \
+            --end-time 0.002 \
+            --base-cells 16
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kinocfdem-v4-generated-case
+          path: ci-kinocfdem-v4/
+
+  coupled-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare v4 case
+        run: |
+          python3 -m pip install --user numpy
+          python3 kinocfdem_v4.py generate \
+            --out ci-kinocfdem-v4-runtime \
+            --end-time 0.02 \
+            --base-cells 16
+          chmod -R a+rwX ci-kinocfdem-v4-runtime
+      - name: Run real two-way OpenFOAM-CFDEM-LIGGGHTS case
+        run: |
+          docker pull hoehnp/docker-cfdem-pfm:latest
+          docker run --rm \
+            --entrypoint /bin/bash \
+            -e BASH_ENV= \
+            -v "$PWD:/work" \
+            -w /work \
+            hoehnp/docker-cfdem-pfm:latest \
+            --noprofile --norc -c '
+              set +u
+              source /opt/openfoam6/etc/bashrc
+              source /home/cfdem/CFDEM/CFDEMcoupling/etc/bashrc
+              set -u
+              cd /work/ci-kinocfdem-v4-runtime
+              bash Allrun.sh
+            '
+      - name: Analyze capture events from real LIGGGHTS trajectory
+        run: |
+          python3 kinocfdem_v4.py analyze \
+            ci-kinocfdem-v4-runtime/DEM/post/dump.liggghts_run \
+            --outdir ci-kinocfdem-v4-runtime/extraction-v4 \
+            --dem-dt 0.00001 \
+            --port-radius 0.05 \
+            --sensor-depth 0.06
+          python3 - <<'PY'
+          import json
+          p="ci-kinocfdem-v4-runtime/extraction-v4/extraction_summary.json"
+          x=json.load(open(p))
+          s=x["summary"]
+          nums=s["ordered_numbers_observed"]
+          assert len(nums)==len(set(nums))
+          assert len(nums)<=25
+          assert len(s["first_14"])<=14
+          print("CAPTURE_SUMMARY", json.dumps(s, sort_keys=True))
+          PY
+      - name: Verify OpenFOAM extraction probes
+        run: |
+          find ci-kinocfdem-v4-runtime/CFD/postProcessing -type f -maxdepth 5 -print || true
+          grep -R "extractionProbes" ci-kinocfdem-v4-runtime/CFD/system/controlDict
+      - name: Collect evidence
+        if: always()
+        run: |
+          find ci-kinocfdem-v4-runtime -maxdepth 5 -type f | sort > kinocfdem-v4-files.txt || true
+          grep -R -E "End|ERROR|FOAM FATAL|Loop time|coupl|LIGGGHTS|extractionProbes" \
+            ci-kinocfdem-v4-runtime/log_* > kinocfdem-v4-log-summary.txt 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kinocfdem-v4-runtime
+          path: |
+            ci-kinocfdem-v4-runtime/
+            kinocfdem-v4-files.txt
+            kinocfdem-v4-log-summary.txt
