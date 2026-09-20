@@ -18,7 +18,7 @@ jobs:
       - name: Install test dependency
         run: python3 -m pip install pytest
       - name: Run calibration tests
-        run: pytest -q tests/test_kinodem_video_calibration.py
+        run: PYTHONPATH=. pytest -q tests/test_kinodem_video_calibration.py
       - name: Compute visual calibration
         run: |
           mkdir -p calibration-results
