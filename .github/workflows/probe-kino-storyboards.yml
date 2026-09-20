@@ -1,0 +1,41 @@
+name: Probe Kino YouTube storyboards
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/probe-kino-storyboards.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe storyboard endpoints and public thumbnails
+        run: |
+          set -euxo pipefail
+          mkdir -p storyboard-probe
+          for id in DUY2JTgHvsQ r3VSNp4ovGQ 6sXnlS3ku_A; do
+            mkdir -p "storyboard-probe/$id"
+            for level in L0 L1 L2 L3; do
+              for n in 0 1 2 3 4 5 6 7 8 9; do
+                url="https://i.ytimg.com/sb/$id/storyboard3_${level}/M${n}.jpg"
+                code=$(curl -L --retry 2 --connect-timeout 10 --max-time 20 -sS -o "storyboard-probe/$id/${level}_M${n}.jpg" -w "%{http_code}" "$url" || true)
+                size=$(stat -c%s "storyboard-probe/$id/${level}_M${n}.jpg" 2>/dev/null || echo 0)
+                echo "$id $level M$n HTTP=$code SIZE=$size" | tee -a storyboard-probe/status.txt
+                if [ "$code" != "200" ] || [ "$size" -lt 5000 ]; then
+                  rm -f "storyboard-probe/$id/${level}_M${n}.jpg"
+                fi
+              done
+            done
+            for q in maxresdefault hqdefault 0; do
+              curl -L -sS --max-time 20 -o "storyboard-probe/$id/thumb_${q}.jpg" "https://i.ytimg.com/vi/$id/${q}.jpg" || true
+            done
+          done
+          find storyboard-probe -type f -printf '%P %s\n' | sort | tee storyboard-probe/files.txt
+      - name: Upload probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: kino-storyboard-probe
+          path: storyboard-probe/
