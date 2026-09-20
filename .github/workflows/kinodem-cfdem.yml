@@ -42,8 +42,19 @@ jobs:
             -w /work \
             hoehnp/docker-cfdem-pfm:latest \
             bash -lc '
-              set -e
-              source ~/.bashrc
+              set -euxo pipefail
+              whoami
+              echo "HOME=$HOME"
+              python3 --version
+              source /opt/openfoam6/etc/bashrc
+              export CFDEM_PROJECT_DIR=/home/cfdem/CFDEM/CFDEMcoupling
+              export CFDEM_SRC_DIR=$CFDEM_PROJECT_DIR/src
+              export CFDEM_PROJECT_USER_DIR=/home/cfdem/CFDEM/cfdem-PUBLIC-6
+              export CFDEM_LIGGGHTS_SRC_DIR=/home/cfdem/CFDEM/LIGGGHTS/src
+              source /home/cfdem/CFDEM/CFDEMcoupling/etc/bashrc || true
+              which blockMesh
+              which snappyHexMesh
+              which cfdemSolverIB
               python3 kinodem_cfdem_case.py --out ci-cfdem-runtime --end-time 0.002 --base-cells 16
               chmod +x ci-cfdem-runtime/Allrun.sh
               cd ci-cfdem-runtime
