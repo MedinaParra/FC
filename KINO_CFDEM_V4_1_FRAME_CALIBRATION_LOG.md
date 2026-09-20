@@ -138,3 +138,89 @@ Continue looking for a non-YouTube-hosted or user-supplied copy of a draw video.
 Once real pixels are available, run a coarse scan to locate the chamber-rich
 interval, then process every frame of that interval with the validated
 calibrator.
+
+
+## 7. User-provided Kino 3281 screenshot calibration
+
+Ten screenshots from draw 3281 (2026-09-18) were supplied directly by the user.
+All ten source files are fingerprinted by SHA-256 in:
+
+`calibration/kino3281_screenshot_calibration.json`
+
+The fixed-camera geometry subset is:
+- `10481.jpg`
+- `10484.jpg`
+- `10486.jpg`
+
+Reference visible outer acrylic circle in `10481.jpg`:
+- center: approximately (683.40, 382.20) px
+- radius: approximately 282.84 px
+- visible outer diameter: approximately 565.68 px
+
+Clear-ball detector contract:
+- yellow fill >= 0.90
+- apparent radius 17-23 px
+- normalized center radius <= 0.80 of the reference outer circle
+- 15 accepted detections across the three fixed-camera images
+
+Per-frame projected outer-shell diameter / apparent ball diameter:
+- 10481: 13.8988
+- 10484: 14.3210
+- 10486: 14.6549
+
+Equal-frame-weight median: **14.3210**.
+
+This quantity is deliberately named `projected_outer_D_over_ball_d`.
+It must **not** be substituted directly for the CFD fluid-domain diameter ratio:
+the visible acrylic shell, perspective, ball depth and internal hardware all
+affect the projection.
+
+### Registration result and wall-motion consequence
+
+ORB features in the non-yellow chamber annulus were registered against
+`10481.jpg`.
+
+- 10484: 636 RANSAC inliers; scale 1.0002425; translation about
+  (-0.156, -0.157) px; median residual 0.127 px.
+- 10486: 549 RANSAC inliers; scale 1.0000786; translation about
+  (-0.184, -0.146) px; rotation about -0.0089 deg; median residual 0.267 px.
+
+The screenshots therefore provide no support for the old whole-globe
+`7 rad/s` wall-motion hypothesis. For v4.1 real-machine calibration that
+hypothesis is **retired as the default**. The successfully validated rotating
+case remains available only as a numerical surrogate/comparison case.
+
+The images prove that ball positions change while the visible support/annulus
+geometry stays registered, but they do **not** identify the driving mechanism.
+Forced-air agitation is a plausible candidate from the machine appearance and
+ball motion, but it remains unmeasured until video timing, airflow information,
+or an identified machine specification is available.
+
+### Reconciliation with the earlier 12.55 estimate
+
+The earlier 12.55 value remains in the record as a broad static visual
+surrogate estimate. The new 14.321 value explicitly uses the **visible outer
+acrylic diameter** and therefore describes a different geometric quantity.
+They must not be averaged together. A future video/physical calibration should
+identify the inner usable fluid boundary separately from the outer acrylic
+shell.
+
+## 8. Kino 3281 archived-video recovery
+
+The exact official video id for draw 3281 was resolved as `nf_0MJG9Aaw`.
+
+Wayback snapshots dated 2026-09-19 preserve the YouTube player response.
+Recovered metadata includes:
+- duration about 3840.9 s;
+- 1920x1080 at 60 fps;
+- 1280x720 at 30 and 60 fps;
+- 640x360 at 30 fps;
+- 256x144 at 30 fps.
+
+The archived player response also preserves the signed
+`serverAbrStreamingUrl`, but the media object itself is not in Wayback:
+an exact CDX lookup returned no capture and replay attempts returned HTTP 404.
+Cobalt's fallback tried 18 candidate backends exhaustively and likewise
+returned no valid YouTube content.
+
+Therefore no temporal velocity result is claimed from the archived metadata.
