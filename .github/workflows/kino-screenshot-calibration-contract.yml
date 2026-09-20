@@ -1,0 +1,18 @@
+name: Kino screenshot calibration contract
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - 'kino_screenshot_calibration.py'
+      - 'tests/test_kino_screenshot_calibration.py'
+      - '.github/workflows/kino-screenshot-calibration-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install --user pytest opencv-python-headless numpy
+      - run: PYTHONPATH=. pytest -q tests/test_kino_screenshot_calibration.py
