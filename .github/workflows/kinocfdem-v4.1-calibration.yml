@@ -1,0 +1,39 @@
+name: KinoCFDDEM v4.1 video calibration
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - 'kinodem_video_calibration.py'
+      - 'calibration/kino_visual_geometry_v4_1.json'
+      - 'tests/test_kinodem_video_calibration.py'
+      - '.github/workflows/kinocfdem-v4.1-calibration.yml'
+  workflow_dispatch:
+
+jobs:
+  calibration-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test dependency
+        run: python3 -m pip install pytest
+      - name: Run calibration tests
+        run: pytest -q tests/test_kinodem_video_calibration.py
+      - name: Compute visual calibration
+        run: |
+          mkdir -p calibration-results
+          python3 kinodem_video_calibration.py \
+            calibration/kino_visual_geometry_v4_1.json \
+            --out calibration-results/kino_visual_geometry_v4_1_result.json \
+            | tee calibration-results/calibration.log
+      - name: Sensitivity only - 40 mm assumed ball
+        run: |
+          python3 kinodem_video_calibration.py \
+            calibration/kino_visual_geometry_v4_1.json \
+            --ball-diameter-mm 40 \
+            --out calibration-results/kino_visual_geometry_v4_1_40mm_scenario.json \
+            | tee calibration-results/scenario-40mm.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kinocfdem-v4.1-video-calibration
+          path: calibration-results/
