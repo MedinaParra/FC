@@ -64,3 +64,55 @@ Outputs:
 ## Calibration status
 
 The capture direction, throat radius, throat depth, chamber dimensions, wall agitation law, ball properties and actual extraction mechanism remain parameters to be calibrated from measurements/video. They must not be presented as measured facts unless corresponding evidence is added.
+
+
+## Verified v4 coupled runtime
+
+A full v4 smoke run completed successfully in GitHub Actions on 2026-09-20.
+
+- Workflow run: `35510882926`
+- Tested commit: `c334e17ef0d1f966ac8918dc1e3fb6d75ab05af2`
+- Contract tests: 8/8 passed
+- Coupled runtime: success
+- OpenFOAM: version 6
+- CFD solver: `cfdemSolverIB`
+- Coupling: `twoWayMPI`
+- Physical simulated time: `0.02 s`
+- CFD execution time reported by OpenFOAM: `19.08 s`
+- Mesh: `5888` cells, `checkMesh: Mesh OK`
+- Maximum non-orthogonality: `39.890933`
+- Maximum skewness: `0.62360778`
+- Final cumulative continuity error: approximately `-1.56e-18`
+
+### Capture-throat result of the smoke run
+
+Default v4 throat:
+
+```
+axis = +z
+port radius = 0.050 m
+sensor depth = 0.060 m
+minimum outward velocity = 0 m/s
+```
+
+Observed result during the 0.02 s smoke window:
+
+```
+unique capture events = 0
+complete_14 = false
+first_14 = []
+```
+
+This is kept as an incomplete run. v4 does not enlarge the throat, pad the sequence or fabricate missing captures merely to obtain 14 numbers.
+
+### OpenFOAM extraction probes
+
+The five throat probes successfully wrote:
+
+- `p`
+- `U`
+- `voidfraction`
+
+Across the five probe locations during this smoke run, the largest sampled velocity magnitude reached approximately `0.0773 m/s`. The probe void fraction remained `1.0`, consistent with no ball occupying the instrumented throat during the simulated window.
+
+OpenFOAM's `p` field in this incompressible formulation is kinematic pressure, so its raw values must not be mislabeled as Pascals without applying the appropriate density conversion.
