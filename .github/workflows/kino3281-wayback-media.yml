@@ -1,0 +1,74 @@
+name: Recover Kino 3281 media from Wayback
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/kino3281-wayback-media.yml'
+  workflow_dispatch:
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch archived page and recover googlevideo URL
+        run: |
+          set -euo pipefail
+          mkdir -p wayback-media
+          snap='20260919150208'
+          page='https://www.youtube.com/watch?v=nf_0MJG9Aaw'
+          curl -k -L -A 'Mozilla/5.0' -sS --connect-timeout 10 --max-time 90 \
+            "https://web.archive.org/web/${snap}id_/${page}" -o wayback-media/page.html
+          python3 - <<'PY'
+          import json,pathlib
+          s=pathlib.Path('wayback-media/page.html').read_text(errors='replace')
+          marker='ytInitialPlayerResponse = '
+          i=s.find(marker)
+          if i<0: raise SystemExit('NO_PLAYER_RESPONSE')
+          obj,end=json.JSONDecoder().raw_decode(s[i+len(marker):])
+          sd=obj.get('streamingData',{})
+          url=sd.get('serverAbrStreamingUrl')
+          if not url: raise SystemExit('NO_SERVER_ABR_URL')
+          pathlib.Path('wayback-media/server_abr_url.txt').write_text(url)
+          fmts=[]
+          for f in sd.get('adaptiveFormats',[]):
+              fmts.append({k:f.get(k) for k in ['itag','mimeType','width','height','fps','bitrate','contentLength','approxDurationMs']})
+          pathlib.Path('wayback-media/formats.json').write_text(json.dumps(fmts,indent=2))
+          print('SERVER_ABR',url[:300])
+          print('FORMATS',json.dumps(fmts,indent=2))
+          PY
+
+      - name: Query CDX for exact media URL and replay it
+        run: |
+          set +e
+          media=$(cat wayback-media/server_abr_url.txt)
+          curl -k -L -sS --connect-timeout 10 --max-time 90 \
+            --get 'https://web.archive.org/cdx/search/cdx' \
+            --data-urlencode "url=$media" \
+            --data-urlencode 'output=json' \
+            --data-urlencode 'fl=timestamp,original,mimetype,statuscode,digest,length' \
+            -o wayback-media/cdx_exact.json || true
+          echo '=== CDX EXACT ===' | tee wayback-media/status.txt
+          cat wayback-media/cdx_exact.json 2>/dev/null | head -c 20000 | tee -a wayback-media/status.txt
+          echo | tee -a wayback-media/status.txt
+
+          for replay_snap in 20260919150208 20260919154120; do
+            echo "=== REPLAY $replay_snap ===" | tee -a wayback-media/status.txt
+            code=$(curl -k -L -A 'Mozilla/5.0' -sS --connect-timeout 10 --max-time 120 \
+              -D "wayback-media/replay_${replay_snap}.headers" \
+              -o "wayback-media/replay_${replay_snap}.bin" \
+              -w '%{http_code}' \
+              "https://web.archive.org/web/${replay_snap}id_/$media" || true)
+            size=$(stat -c%s "wayback-media/replay_${replay_snap}.bin" 2>/dev/null || echo 0)
+            mime=$(file -b --mime-type "wayback-media/replay_${replay_snap}.bin" 2>/dev/null || true)
+            echo "HTTP=$code SIZE=$size MIME=$mime" | tee -a wayback-media/status.txt
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kino3281-wayback-media-recovery
+          compression-level: 6
+          path: wayback-media/
