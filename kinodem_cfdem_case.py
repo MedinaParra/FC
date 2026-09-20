@@ -505,7 +505,7 @@ fi
 $MPIRUN_CMD -np 4 cfdemSolverIB -parallel 2>&1 | tee "$casePath/log_kinodem_cfdem"
 
 reconstructPar -latestTime || true
-foamToVTK -latestTime || true
+foamToVTK || true
 """)
 
     manifest = {
