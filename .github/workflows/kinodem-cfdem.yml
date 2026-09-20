@@ -44,7 +44,7 @@ jobs:
             -v "$PWD:/work" \
             -w /work \
             hoehnp/docker-cfdem-pfm:latest \
-            bash -lc '
+            bash -c '
               set -eo pipefail
               set +u
               source /opt/openfoam6/etc/bashrc
