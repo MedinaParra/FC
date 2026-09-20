@@ -46,14 +46,23 @@ jobs:
             -w /work \
             hoehnp/docker-cfdem-pfm:latest \
             -c '
-              set -eo pipefail
+              set -x
+              set +e
               set +u
+              echo "BOOTSTRAP_START"
               source /opt/openfoam6/etc/bashrc
+              echo "OPENFOAM_RC=$?"
               source /home/cfdem/CFDEM/CFDEMcoupling/etc/bashrc
+              echo "CFDEM_RC=$?"
+              echo "WM_PROJECT_DIR=${WM_PROJECT_DIR:-missing}"
+              echo "CFDEM_SRC_DIR=${CFDEM_SRC_DIR:-missing}"
+              echo "PATH=$PATH"
+              command -v blockMesh || true
+              command -v snappyHexMesh || true
+              command -v cfdemSolverIB || true
+              find /home/cfdem -type f -name cfdemSolverIB -o -name "libliggghts*" 2>/dev/null | head -30 || true
+              set -e
               set -u
-              which blockMesh
-              which snappyHexMesh
-              which cfdemSolverIB
               cd /work/ci-cfdem-runtime
               chmod +x Allrun.sh
               ./Allrun.sh
