@@ -1,0 +1,90 @@
+name: Direct Cobalt probe for Kino 3281
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/kino3281-direct-cobalt.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe directory and direct Cobalt APIs
+        run: |
+          set +e
+          mkdir -p direct-cobalt
+          target='https://www.youtube.com/watch?v=nf_0MJG9Aaw'
+          echo "$target" > direct-cobalt/target.txt
+
+          echo '=== INSTANCE DIRECTORY ===' | tee direct-cobalt/log.txt
+          curl -L -sS -D direct-cobalt/instances.headers \
+            --connect-timeout 10 --max-time 30 \
+            'https://instances.cobalt.best/api/instances.json' \
+            -o direct-cobalt/instances.json
+          echo "instances bytes=$(stat -c%s direct-cobalt/instances.json 2>/dev/null || echo 0)" | tee -a direct-cobalt/log.txt
+          head -c 3000 direct-cobalt/instances.json 2>/dev/null | tee -a direct-cobalt/log.txt
+          echo | tee -a direct-cobalt/log.txt
+
+          for api in 'https://dwnld.nichind.dev' 'https://api.cobalt.tools'; do
+            slug=$(printf '%s' "$api" | sed 's#https://##;s#[^A-Za-z0-9]#_#g')
+            echo "=== POST $api ===" | tee -a direct-cobalt/log.txt
+            code=$(curl -L -sS --connect-timeout 10 --max-time 90 \
+              -H 'Accept: application/json' -H 'Content-Type: application/json' \
+              -o "direct-cobalt/${slug}.json" -w '%{http_code}' \
+              -X POST "$api/" \
+              --data "{\"url\":\"$target\",\"videoQuality\":\"480\",\"downloadMode\":\"mute\",\"youtubeVideoCodec\":\"h264\"}" || true)
+            echo "HTTP=$code BODY=$(cat direct-cobalt/${slug}.json 2>/dev/null)" | tee -a direct-cobalt/log.txt
+          done
+
+          python3 - <<'PY'
+          import json, pathlib
+          p=pathlib.Path('direct-cobalt/instances.json')
+          if not p.exists(): raise SystemExit
+          try: data=json.loads(p.read_text())
+          except Exception as e:
+              print('DIRECTORY_JSON_ERROR',e); raise SystemExit
+          print('DIRECTORY_TYPE',type(data).__name__)
+          if isinstance(data,dict):
+              print('DIRECTORY_KEYS',list(data)[:30])
+              candidates=data.get('instances') or data.get('data') or []
+          elif isinstance(data,list): candidates=data
+          else: candidates=[]
+          print('CANDIDATES',len(candidates))
+          yt=[]
+          for x in candidates:
+              if not isinstance(x,dict): continue
+              online=x.get('online',{})
+              services=x.get('services',{})
+              if online.get('api') and services.get('youtube') is True:
+                  proto=x.get('protocol','https'); api=x.get('api')
+                  if api: yt.append(f'{proto}://{api}')
+          print('YT_CANDIDATES',len(yt))
+          pathlib.Path('direct-cobalt/youtube_instances.txt').write_text('\n'.join(yt[:30]))
+          for x in yt[:30]: print('YT_INSTANCE',x)
+          PY
+
+          if [ -s direct-cobalt/youtube_instances.txt ]; then
+            i=0
+            while IFS= read -r api && [ $i -lt 12 ]; do
+              [ -z "$api" ] && continue
+              i=$((i+1))
+              slug="inst_${i}"
+              echo "=== INSTANCE $i $api ===" | tee -a direct-cobalt/log.txt
+              code=$(curl -L -sS --connect-timeout 8 --max-time 60 \
+                -H 'Accept: application/json' -H 'Content-Type: application/json' \
+                -o "direct-cobalt/${slug}.json" -w '%{http_code}' \
+                -X POST "$api/" \
+                --data "{\"url\":\"$target\",\"videoQuality\":\"480\",\"downloadMode\":\"mute\",\"youtubeVideoCodec\":\"h264\"}" || true)
+              echo "HTTP=$code BODY=$(cat direct-cobalt/${slug}.json 2>/dev/null)" | tee -a direct-cobalt/log.txt
+            done < direct-cobalt/youtube_instances.txt
+          fi
+          exit 0
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kino3281-direct-cobalt-probe
+          path: direct-cobalt/
