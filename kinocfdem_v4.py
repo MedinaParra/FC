@@ -353,8 +353,8 @@ def aggregate_capture_summaries(paths: Iterable[str | Path]) -> dict:
         first14 = data["summary"]["first_14"]
         if data["summary"]["complete_14"]:
             complete_runs += 1
-        for number in set(first14):
-            counts[int(number) - 1] += 1
+            for number in set(first14):
+                counts[int(number) - 1] += 1
 
     denom = complete_runs if complete_runs else 0
     probs = (
