@@ -458,8 +458,22 @@ run 1
 """)
 
     write_text(root / "Allrun.sh", """#!/bin/bash
-set -euo pipefail
-source ~/.bashrc
+set -eo pipefail
+
+# Load an existing CFDEM environment only when the caller has not loaded it.
+# Avoid nounset while sourcing legacy OpenFOAM/CFDEM bashrc files.
+if [ -z "${CFDEM_SRC_DIR:-}" ]; then
+    set +u
+    if [ -f /opt/openfoam6/etc/bashrc ]; then
+        source /opt/openfoam6/etc/bashrc
+    fi
+    if [ -f /home/cfdem/CFDEM/CFDEMcoupling/etc/bashrc ]; then
+        source /home/cfdem/CFDEM/CFDEMcoupling/etc/bashrc
+    fi
+    set -u
+fi
+
+: "${CFDEM_SRC_DIR:?CFDEM environment is not loaded}"
 source "$CFDEM_SRC_DIR/lagrangian/cfdemParticle/etc/functions.sh"
 casePath="$(cd "$(dirname "$0")" && pwd)"
 
