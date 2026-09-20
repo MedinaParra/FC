@@ -42,7 +42,14 @@ def test_prepare_case_contains_real_liggghts_commands(tmp_path: Path):
     assert "f_ts_check[1] f_ts_check[2] f_ts_check[3]" in inp
     mesh = (tmp_path / "drum.stl").read_text()
     assert mesh.startswith("solid kinodem_globe")
-    assert mesh.count("facet normal") == 2 * cfg.drum_segments * (cfg.globe_lat_segments - 1)
+    assert mesh.count("facet normal") == 2 * cfg.drum_segments * (cfg.globe_lat_segments + 1) - 4
+    vertices = []
+    for line in mesh.splitlines():
+        if line.strip().startswith("vertex "):
+            _, x, y, z = line.split()
+            vertices.append((float(x), float(y), float(z)))
+    min_axis_radius = min((x*x + y*y) ** 0.5 for x, y, _ in vertices)
+    assert min_axis_radius >= 0.0099 * cfg.drum_radius
     assert (tmp_path / "drum.stl").stat().st_size > 1000
     data = (tmp_path / "balls.data").read_text()
     assert "25 atoms" in data
