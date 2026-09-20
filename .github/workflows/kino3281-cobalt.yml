@@ -1,0 +1,108 @@
+name: Resolve and download Kino 3281 via Cobalt
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/kino3281-cobalt.yml'
+  workflow_dispatch:
+
+jobs:
+  resolve-download:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg jq
+          python3 -m pip install --user -U pybalt opencv-python-headless numpy pandas matplotlib
+
+      - name: Resolve official channel and video id
+        run: |
+          set -euo pipefail
+          mkdir -p kino3281-cobalt
+          # Known official Kino 3279 video, used only to resolve the official channel id.
+          ref='https://www.youtube.com/watch?v=Tl00yax-Aws'
+          curl -fsSL --connect-timeout 10 --max-time 30 \
+            "https://www.youtube.com/oembed?url=${ref}&format=json" \
+            -o kino3281-cobalt/oembed.json
+          cat kino3281-cobalt/oembed.json
+          author_url=$(jq -r '.author_url // empty' kino3281-cobalt/oembed.json)
+          channel_id=$(printf '%s' "$author_url" | sed -n 's#.*channel/\([^/?]*\).*#\1#p')
+          echo "AUTHOR_URL=$author_url" | tee kino3281-cobalt/resolve.log
+          echo "CHANNEL_ID=$channel_id" | tee -a kino3281-cobalt/resolve.log
+          test -n "$channel_id"
+          curl -fsSL --connect-timeout 10 --max-time 30 \
+            "https://www.youtube.com/feeds/videos.xml?channel_id=$channel_id" \
+            -o kino3281-cobalt/feed.xml
+          python3 - <<'PY'
+          import re, pathlib, xml.etree.ElementTree as ET
+          p=pathlib.Path('kino3281-cobalt/feed.xml')
+          root=ET.fromstring(p.read_bytes())
+          ns={'atom':'http://www.w3.org/2005/Atom','yt':'http://www.youtube.com/xml/schemas/2015'}
+          rows=[]
+          for e in root.findall('atom:entry',ns):
+              title=e.findtext('atom:title',default='',namespaces=ns)
+              vid=e.findtext('yt:videoId',default='',namespaces=ns)
+              pub=e.findtext('atom:published',default='',namespaces=ns)
+              rows.append((pub,vid,title))
+          for row in rows: print(row)
+          match=None
+          for pub,vid,title in rows:
+              normalized=title.replace(' ','')
+              if '3.281' in title or '3281' in normalized or ('18Septiembre2026' in normalized and 'Kino' in title):
+                  match=(pub,vid,title); break
+          if not match:
+              raise SystemExit('KINO3281_NOT_FOUND_IN_FEED')
+          pub,vid,title=match
+          pathlib.Path('kino3281-cobalt/video_id.txt').write_text(vid)
+          pathlib.Path('kino3281-cobalt/video_title.txt').write_text(title)
+          print('MATCH',pub,vid,title)
+          PY
+
+      - name: Download through Pybalt public Cobalt instances
+        run: |
+          set -euo pipefail
+          id=$(cat kino3281-cobalt/video_id.txt)
+          mkdir -p kino3281-cobalt/download
+          python3 -m pybalt \
+            "https://www.youtube.com/watch?v=$id" \
+            -vQ 480 -fp "$PWD/kino3281-cobalt/download" \
+            2>&1 | tee kino3281-cobalt/pybalt.log
+          find kino3281-cobalt/download -type f -maxdepth 1 -printf '%p %s\n' | tee kino3281-cobalt/files.txt
+          video=$(find kino3281-cobalt/download -maxdepth 1 -type f \( -iname '*.mp4' -o -iname '*.webm' -o -iname '*.mkv' \) | head -n1)
+          test -n "$video"
+          cp "$video" kino3281-cobalt/kino3281_source.mp4 || ffmpeg -y -i "$video" -c copy kino3281-cobalt/kino3281_source.mp4
+          ffprobe -v error -show_entries format=duration,size:stream=width,height,r_frame_rate,avg_frame_rate,codec_name \
+            -of json kino3281-cobalt/kino3281_source.mp4 > kino3281-cobalt/video_probe.json
+          sha256sum kino3281-cobalt/kino3281_source.mp4 | tee kino3281-cobalt/source.sha256
+
+      - name: Coarse scan and frame calibration
+        run: |
+          set -euo pipefail
+          python3 kino_frame_calibration.py \
+            kino3281-cobalt/kino3281_source.mp4 \
+            --outdir kino3281-cobalt/results \
+            --redetect-every 10 \
+            --block-s 1.0 \
+            | tee kino3281-cobalt/calibration.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kino3281-cobalt-calibration
+          compression-level: 6
+          path: |
+            kino3281-cobalt/oembed.json
+            kino3281-cobalt/resolve.log
+            kino3281-cobalt/feed.xml
+            kino3281-cobalt/video_id.txt
+            kino3281-cobalt/video_title.txt
+            kino3281-cobalt/pybalt.log
+            kino3281-cobalt/files.txt
+            kino3281-cobalt/video_probe.json
+            kino3281-cobalt/source.sha256
+            kino3281-cobalt/calibration.log
+            kino3281-cobalt/results/
