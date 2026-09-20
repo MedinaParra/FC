@@ -85,7 +85,14 @@ def write_case(root: str | Path, cfg: CFDDEMConfig) -> Path:
     cfd = root / "CFD"
     dem = root / "DEM"
     tri = cfd / "constant" / "triSurface"
-    for p in [cfd / "0", cfd / "constant", cfd / "system", tri, dem / "post"]:
+    for p in [
+        cfd / "0",
+        cfd / "constant",
+        cfd / "system",
+        cfd / "couplingFiles",
+        tri,
+        dem / "post",
+    ]:
         p.mkdir(parents=True, exist_ok=True)
 
     lcfg = LiggghtsConfig(
@@ -474,7 +481,14 @@ if [ -z "${CFDEM_SRC_DIR:-}" ]; then
 fi
 
 : "${CFDEM_SRC_DIR:?CFDEM environment is not loaded}"
-source "$CFDEM_SRC_DIR/lagrangian/cfdemParticle/etc/functions.sh"
+if [ -f "$CFDEM_SRC_DIR/lagrangian/cfdemParticle/etc/functions.sh" ]; then
+    source "$CFDEM_SRC_DIR/lagrangian/cfdemParticle/etc/functions.sh"
+elif [ -f "${CFDEM_PROJECT_DIR:-}/etc/functions.sh" ]; then
+    source "$CFDEM_PROJECT_DIR/etc/functions.sh"
+else
+    echo "CFDEM functions.sh not found" >&2
+    exit 2
+fi
 casePath="$(cd "$(dirname "$0")" && pwd)"
 
 cd "$casePath/CFD"
@@ -485,7 +499,8 @@ decomposePar -force
 
 cd "$casePath"
 parCFDDEMrun "$casePath" "log_kinodem_cfdem" "$casePath" \
-    "kinodem_cfdem_twoWayMPI" "cfdemSolverIB" "4" "none" "off"
+    "kinodem_cfdem_twoWayMPI" "cfdemSolverIB" "4" "none" "off" \
+    "false" "false" "false" "false"
 
 cd "$casePath/CFD"
 reconstructPar -latestTime || true
