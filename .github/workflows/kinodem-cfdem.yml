@@ -40,12 +40,14 @@ jobs:
       - name: Run coupled OpenFOAM-LIGGGHTS smoke case
         run: |
           docker pull hoehnp/docker-cfdem-pfm:latest
+          docker inspect --format='Entrypoint={{json .Config.Entrypoint}} Cmd={{json .Config.Cmd}} Env={{json .Config.Env}}' hoehnp/docker-cfdem-pfm:latest
           docker run --rm \
             --entrypoint /bin/bash \
+            -e BASH_ENV= \
             -v "$PWD:/work" \
             -w /work \
             hoehnp/docker-cfdem-pfm:latest \
-            -c '
+            --noprofile --norc -c '
               set -x
               set +e
               set +u
