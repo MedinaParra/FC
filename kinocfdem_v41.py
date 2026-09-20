@@ -51,6 +51,18 @@ def write_v41_case(
         "projected_outer_D_over_ball_d": 14.321012472804588,
         "absolute_scale_identified": False,
         "temporal_velocity_identified": False,
+        "rail_geometry": {
+            "evidence": "calibration/kino3281_rail_calibration.json",
+            "status": "projected_dimensionless_calibration",
+            "detected_centers": 9,
+            "center_path_radius_px": 304.9441685160556,
+            "local_pitch_px": 34.260552837239715,
+            "center_path_radius_over_local_pitch": 8.900736948546689,
+            "angular_pitch_deg": 6.437195014783307,
+            "center_path_radius_over_visible_outer_chamber_radius": 1.078150800680108,
+            "fit_median_abs_residual_px": 0.9715566458286844,
+            "absolute_scale_identified": False,
+        },
     }
     manifest["v41_guardrail"] = (
         "This stationary case is a diagnostic geometry/coupling baseline. "
