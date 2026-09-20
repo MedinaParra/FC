@@ -111,6 +111,38 @@ def try_host(d, base_url, root, host, video_id, out):
     (out/f"body_{host.replace('.','_')}.txt").write_text(
         frame_body(d),encoding="utf-8",errors="replace")
 
+    # Preserve the useful, non-authenticated subset of YouTube's player response.
+    # The visible player may be blocked while metadata/storyboard descriptors are
+    # still populated. Do not treat this as playable video until media pixels are verified.
+    player_json=d.execute_script("""
+      function pickResponse() {
+        try {
+          let p=document.getElementById('movie_player');
+          if (p && typeof p.getPlayerResponse==='function') {
+            let r=p.getPlayerResponse(); if (r) return r;
+          }
+        } catch(e) {}
+        try { if (window.ytInitialPlayerResponse) return window.ytInitialPlayerResponse; } catch(e) {}
+        try {
+          let r=window.ytplayer && ytplayer.config && ytplayer.config.args && ytplayer.config.args.raw_player_response;
+          if (r) return (typeof r==='string') ? JSON.parse(r) : r;
+        } catch(e) {}
+        return null;
+      }
+      let r=pickResponse();
+      if (!r) return null;
+      return JSON.stringify({
+        playabilityStatus:r.playabilityStatus || null,
+        videoDetails:r.videoDetails || null,
+        storyboards:r.storyboards || null,
+        streamingData:r.streamingData || null,
+        microformat:r.microformat || null
+      });
+    """)
+    if player_json:
+        (out/f"player_response_{host.replace('.','_')}.json").write_text(
+            player_json,encoding="utf-8")
+
     d.execute_script("""
       let p=document.getElementById('movie_player');
       if (p) { try { p.mute(); p.playVideo(); } catch(e) {} }
