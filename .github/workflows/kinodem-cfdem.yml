@@ -66,8 +66,7 @@ jobs:
               set -e
               set -u
               cd /work/ci-cfdem-runtime
-              chmod +x Allrun.sh
-              ./Allrun.sh
+              bash Allrun.sh
             '
       - name: Collect runtime evidence
         if: always()
