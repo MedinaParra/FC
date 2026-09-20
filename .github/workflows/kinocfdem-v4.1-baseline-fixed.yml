@@ -1,0 +1,29 @@
+name: KinoCFDDEM v4.1 calibrated baseline contract fixed
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - 'kinocfdem_v41.py'
+      - 'tests/test_kinocfdem_v41.py'
+      - '.github/workflows/kinocfdem-v4.1-baseline-fixed.yml'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pip install --user pytest numpy
+      - run: PYTHONPATH=. pytest -q tests/test_kinocfdem_v41.py tests/test_kinocfdem_v4.py
+      - run: |
+          python3 kinocfdem_v41.py --out /tmp/kinocfdem-v41-case --end-time 0.002 --base-cells 16
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/kinocfdem-v41-case/case_manifest.json'))
+          assert p['model']=='KinoCFDDEM v4'
+          assert p['variant']=='KinoCFDDEM v4.1 screenshot-calibrated baseline'
+          assert p['config']['omega_rad_s']==0.0
+          assert p['machine_calibration']['wall_motion']=='stationary'
+          print(json.dumps(p['machine_calibration'],indent=2))
+          PY
