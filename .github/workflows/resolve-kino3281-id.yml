@@ -1,0 +1,83 @@
+name: Resolve official Kino 3281 video id
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/resolve-kino3281-id.yml'
+  workflow_dispatch:
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve channel id from official handle
+        run: |
+          set -euo pipefail
+          mkdir -p resolve3281
+          curl -L -A 'Mozilla/5.0' -sS --connect-timeout 10 --max-time 40 \
+            'https://www.youtube.com/@LoteriadeConcepcion' -o resolve3281/channel.html || true
+          python3 - <<'PY'
+          import re, pathlib, json
+          s=pathlib.Path('resolve3281/channel.html').read_text(errors='replace')
+          pats=[
+            r'"channelId":"(UC[^"]+)"',
+            r'"externalId":"(UC[^"]+)"',
+            r'"browseId":"(UC[^"]+)"',
+            r'youtube\.com/channel/(UC[A-Za-z0-9_-]+)'
+          ]
+          ids=[]
+          for p in pats:
+              ids += re.findall(p,s)
+          ids=list(dict.fromkeys(ids))
+          print('CHANNEL_IDS',ids[:20])
+          pathlib.Path('resolve3281/channel_ids.json').write_text(json.dumps(ids,indent=2))
+          if ids:
+              pathlib.Path('resolve3281/channel_id.txt').write_text(ids[0])
+          PY
+      - name: Resolve recent videos from RSS
+        run: |
+          set +e
+          if [ -s resolve3281/channel_id.txt ]; then
+            cid=$(cat resolve3281/channel_id.txt)
+            curl -fsSL --connect-timeout 10 --max-time 30 \
+              "https://www.youtube.com/feeds/videos.xml?channel_id=$cid" -o resolve3281/feed.xml
+          else
+            curl -fsSL --connect-timeout 10 --max-time 30 \
+              'https://www.youtube.com/feeds/videos.xml?user=LoteriadeConcepcion' -o resolve3281/feed.xml
+          fi
+          python3 - <<'PY'
+          import pathlib, xml.etree.ElementTree as ET, json
+          p=pathlib.Path('resolve3281/feed.xml')
+          if not p.exists() or not p.stat().st_size:
+              raise SystemExit('NO_FEED')
+          root=ET.fromstring(p.read_bytes())
+          ns={'a':'http://www.w3.org/2005/Atom','yt':'http://www.youtube.com/xml/schemas/2015'}
+          rows=[]
+          for e in root.findall('a:entry',ns):
+              row={
+                'title':e.findtext('a:title',default='',namespaces=ns),
+                'video_id':e.findtext('yt:videoId',default='',namespaces=ns),
+                'published':e.findtext('a:published',default='',namespaces=ns),
+              }
+              rows.append(row)
+          pathlib.Path('resolve3281/recent_videos.json').write_text(json.dumps(rows,indent=2,ensure_ascii=False))
+          for r in rows: print(r)
+          hit=next((r for r in rows if '3.281' in r['title'] or '3281' in r['title'].replace('.','')),None)
+          if hit:
+              pathlib.Path('resolve3281/kino3281_id.txt').write_text(hit['video_id'])
+              print('FOUND_3281',hit)
+          else:
+              raise SystemExit('3281_NOT_IN_FEED')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kino3281-id-resolution
+          path: |
+            resolve3281/channel_ids.json
+            resolve3281/channel_id.txt
+            resolve3281/feed.xml
+            resolve3281/recent_videos.json
+            resolve3281/kino3281_id.txt
