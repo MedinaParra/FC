@@ -1,0 +1,76 @@
+name: KinoCFDDEM v4.1 frame calibration
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - 'kino_frame_calibration.py'
+      - '.github/workflows/kinocfdem-v4.1-frame-calibration.yml'
+  workflow_dispatch:
+
+jobs:
+  frame-calibration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install video/calibration dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python3 -m pip install --user yt-dlp opencv-python-headless numpy pandas matplotlib
+
+      - name: Download official Kino 3279 video
+        run: |
+          mkdir -p frame-calibration
+          python3 -m yt_dlp \
+            -f "bv*[height<=720]+ba/b[height<=720]" \
+            --merge-output-format mp4 \
+            -o "frame-calibration/kino3279.%(ext)s" \
+            "https://www.youtube.com/watch?v=DUY2JTgHvsQ"
+          ls -lh frame-calibration/
+
+      - name: Record source metadata
+        run: |
+          python3 -m yt_dlp --dump-single-json --skip-download \
+            "https://www.youtube.com/watch?v=DUY2JTgHvsQ" \
+            > frame-calibration/source_metadata.json
+          ffprobe -v error -show_entries format=duration:stream=width,height,r_frame_rate,avg_frame_rate,codec_name \
+            -of json frame-calibration/kino3279.mp4 \
+            > frame-calibration/video_probe.json
+
+      - name: Run frame-by-frame calibration
+        run: |
+          python3 kino_frame_calibration.py \
+            frame-calibration/kino3279.mp4 \
+            --outdir frame-calibration/results \
+            --redetect-every 10 \
+            | tee frame-calibration/frame-calibration.log
+
+      - name: Validate output contract
+        run: |
+          python3 - <<'PY'
+          import json, pandas as pd
+          from pathlib import Path
+          p=Path("frame-calibration/results")
+          s=json.loads((p/"frame_summary.json").read_text())
+          df=pd.read_csv(p/"frame_measurements.csv")
+          assert len(df)==s["frames_total_processed"]
+          assert "ratio" in df.columns and "accepted" in df.columns
+          assert (p/"ratio_timeseries.png").exists()
+          print("SUMMARY",json.dumps(s,indent=2))
+          print("CSV_ROWS",len(df))
+          print("ACCEPTED",int(df["accepted"].sum()))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kinocfdem-v4.1-frame-calibration-3279
+          compression-level: 6
+          path: |
+            frame-calibration/source_metadata.json
+            frame-calibration/video_probe.json
+            frame-calibration/frame-calibration.log
+            frame-calibration/results/
