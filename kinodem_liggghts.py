@@ -181,7 +181,16 @@ def write_cylinder_stl(path: str | Path, cfg: LiggghtsConfig) -> Path:
 
 
 def write_globe_stl(path: str | Path, cfg: LiggghtsConfig) -> Path:
-    """Write a closed UV-sphere mesh used as the globe-like draw chamber."""
+    """Write a closed near-spherical mesh without vertices on the rotation axis.
+
+    LIGGGHTS-PFM's surface_ang_vel implementation rejects any mesh node whose
+    tangential wall speed is below 1e-5 m/s. A conventional UV sphere has two
+    pole vertices exactly on the rotation axis, where the physically correct
+    tangential speed is zero. We therefore replace each mathematical pole with
+    a tiny flat circular cap. The default cap radius is 1% of the chamber
+    radius, changing the axial radius by only ~5e-5 relative while keeping all
+    vertices safely off-axis.
+    """
     cfg.validate()
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -189,19 +198,28 @@ def write_globe_stl(path: str | Path, cfg: LiggghtsConfig) -> Path:
     nlon = cfg.drum_segments
     nlat = cfg.globe_lat_segments
 
-    rings: list[list[tuple[float, float, float]]] = []
-    # Exclude the poles from the rings so cap triangles are non-degenerate.
+    def make_ring(rxy: float, z: float):
+        return [
+            (
+                rxy * math.cos(2 * math.pi * k / nlon),
+                rxy * math.sin(2 * math.pi * k / nlon),
+                z,
+            )
+            for k in range(nlon)
+        ]
+
+    # 1% of radius => at omega=7 rad/s and r=0.25 m, v_t = 0.0175 m/s,
+    # far above LIGGGHTS-PFM EPSILON_V=1e-5 m/s.
+    cap_r = 0.01 * r
+    cap_z = math.sqrt(max(0.0, r * r - cap_r * cap_r))
+
+    rings: list[list[tuple[float, float, float]]] = [make_ring(cap_r, -cap_z)]
     for j in range(1, nlat):
         phi = -math.pi / 2 + math.pi * j / nlat
         cp, sp = math.cos(phi), math.sin(phi)
-        ring = []
-        for k in range(nlon):
-            theta = 2 * math.pi * k / nlon
-            ring.append((r * cp * math.cos(theta), r * cp * math.sin(theta), r * sp))
-        rings.append(ring)
+        rings.append(make_ring(r * cp, r * sp))
+    rings.append(make_ring(cap_r, cap_z))
 
-    south = (0.0, 0.0, -r)
-    north = (0.0, 0.0, r)
     chunks = ["solid kinodem_globe\n"]
 
     def outward_normal(a, b, c):
@@ -213,14 +231,13 @@ def write_globe_stl(path: str | Path, cfg: LiggghtsConfig) -> Path:
         norm = float(np.linalg.norm(n))
         return tuple(n / norm) if norm > 0 else (0.0, 0.0, 1.0)
 
-    first = rings[0]
-    last = rings[-1]
-    for k in range(nlon):
-        k1 = (k + 1) % nlon
-        a, b = south, first[k1]
-        cc = first[k]
-        chunks.append(_facet(outward_normal(a, b, cc), a, b, cc))
+    # Close the tiny south cap using only off-axis vertices.
+    south = rings[0]
+    for k in range(1, nlon - 1):
+        tri = (south[0], south[k + 1], south[k])
+        chunks.append(_facet(outward_normal(*tri), *tri))
 
+    # Connect all latitude rings, including the tiny pole-cap rings.
     for j in range(len(rings) - 1):
         lo, hi = rings[j], rings[j + 1]
         for k in range(nlon):
@@ -230,10 +247,11 @@ def write_globe_stl(path: str | Path, cfg: LiggghtsConfig) -> Path:
             chunks.append(_facet(outward_normal(*t1), *t1))
             chunks.append(_facet(outward_normal(*t2), *t2))
 
-    for k in range(nlon):
-        k1 = (k + 1) % nlon
-        a, b, cc = last[k], last[k1], north
-        chunks.append(_facet(outward_normal(a, b, cc), a, b, cc))
+    # Close the tiny north cap, again without a vertex on the axis.
+    north = rings[-1]
+    for k in range(1, nlon - 1):
+        tri = (north[0], north[k], north[k + 1])
+        chunks.append(_facet(outward_normal(*tri), *tri))
 
     chunks.append("endsolid kinodem_globe\n")
     path.write_text("".join(chunks), encoding="utf-8")
