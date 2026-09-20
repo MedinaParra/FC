@@ -1,0 +1,58 @@
+name: Inspect archived Kino 3281 YouTube page
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/kino3281-wayback-html.yml'
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch archived page and inspect media descriptors
+        run: |
+          set -euo pipefail
+          mkdir -p wayback-html
+          snap='20260919150208'
+          url='https://www.youtube.com/watch?v=nf_0MJG9Aaw'
+          curl -k -L -A 'Mozilla/5.0' -sS --connect-timeout 10 --max-time 90 \
+            "https://web.archive.org/web/${snap}id_/${url}" \
+            -o wayback-html/page.html
+          wc -c wayback-html/page.html | tee wayback-html/status.txt
+          python3 - <<'PY'
+          import re, json, html, pathlib, urllib.parse
+          s=pathlib.Path('wayback-html/page.html').read_text(errors='replace')
+          pats={
+            'googlevideo': r'https?[^"\\ ]+googlevideo[^"\\ ]+',
+            'videoplayback': r'https?[^"\\ ]+videoplayback[^"\\ ]+',
+            'hls': r'https?[^"\\ ]+\.m3u8[^"\\ ]*',
+            'dash': r'https?[^"\\ ]+\.mpd[^"\\ ]*',
+          }
+          out={}
+          for k,p in pats.items():
+              vals=[]
+              for x in re.findall(p,s):
+                  x=html.unescape(x).replace('\\u0026','&').replace('\\/','/')
+                  if x not in vals: vals.append(x)
+              out[k]=vals[:100]
+              print(k,len(vals))
+              for v in vals[:10]: print(v[:500])
+          for token in ['streamingData','adaptiveFormats','formats','hlsManifestUrl','dashManifestUrl','storyboards','playabilityStatus']:
+              print(token, s.find(token))
+          pathlib.Path('wayback-html/media_urls.json').write_text(json.dumps(out,indent=2))
+          # save snippets around relevant tokens for audit
+          chunks=[]
+          for token in ['streamingData','hlsManifestUrl','dashManifestUrl','storyboards','playabilityStatus']:
+              i=s.find(token)
+              if i>=0: chunks.append(f'### {token}\n'+s[max(0,i-1000):i+5000])
+          pathlib.Path('wayback-html/snippets.txt').write_text('\n\n'.join(chunks))
+          PY
+          grep -aoE 'https?[^" ]+' wayback-html/page.html | grep -E 'googlevideo|videoplayback|m3u8|\.mpd' | head -n 100 > wayback-html/media_urls.txt || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kino3281-wayback-html
+          path: wayback-html/
