@@ -1,0 +1,133 @@
+name: Retrieve Kino with PO Token
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/retrieve-kino-pot.yml'
+  workflow_dispatch:
+
+jobs:
+  retrieve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install retrieval and calibration dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg jq
+          python3 -m pip install --user -U yt-dlp bgutil-ytdlp-pot-provider opencv-python-headless numpy pandas matplotlib
+
+      - name: Start BgUtils PO Token provider
+        run: |
+          docker pull brainicism/bgutil-ytdlp-pot-provider:latest
+          docker run --name bgutil-provider -d --init \
+            -p 127.0.0.1:4416:4416 \
+            brainicism/bgutil-ytdlp-pot-provider:latest
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4416/ >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker ps --filter name=bgutil-provider
+
+      - name: Verify yt-dlp PO provider and probe official videos
+        run: |
+          set +e
+          mkdir -p pot-retrieval
+          python3 -m yt_dlp --version | tee pot-retrieval/ytdlp_version.txt
+          URLS=(
+            'DUY2JTgHvsQ'
+            'r3VSNp4ovGQ'
+            '6sXnlS3ku_A'
+          )
+          chosen=''
+          for id in "${URLS[@]}"; do
+            echo "=== PROBE $id ===" | tee -a pot-retrieval/probe.log
+            python3 -m yt_dlp -v -F \
+              --js-runtimes node \
+              --extractor-args 'youtube:player_client=mweb' \
+              "https://www.youtube.com/watch?v=$id" \
+              >> pot-retrieval/probe.log 2>&1
+            rc=$?
+            echo "RC=$rc" | tee -a pot-retrieval/probe.log
+            if [ $rc -eq 0 ]; then
+              chosen="$id"
+              echo "$id" > pot-retrieval/chosen_id.txt
+              break
+            fi
+          done
+          if [ -z "$chosen" ]; then
+            echo 'NO_VIDEO_RESOLVED' | tee pot-retrieval/result.txt
+            exit 1
+          fi
+          echo "RESOLVED=$chosen" | tee pot-retrieval/result.txt
+
+      - name: Download low-resolution video stream
+        run: |
+          set -euo pipefail
+          id=$(cat pot-retrieval/chosen_id.txt)
+          python3 -m yt_dlp \
+            --js-runtimes node \
+            --extractor-args 'youtube:player_client=mweb' \
+            -f 'bv*[height<=480]/b[height<=480]' \
+            --merge-output-format mp4 \
+            -o 'pot-retrieval/kino.%(ext)s' \
+            "https://www.youtube.com/watch?v=$id"
+          test -s pot-retrieval/kino.mp4
+          ffprobe -v error \
+            -show_entries format=duration,size:stream=width,height,r_frame_rate,avg_frame_rate,codec_name \
+            -of json pot-retrieval/kino.mp4 > pot-retrieval/video_probe.json
+          ls -lh pot-retrieval/kino.mp4
+
+      - name: Coarse 1 fps chamber scan
+        run: |
+          set -euo pipefail
+          mkdir -p pot-retrieval/coarse
+          ffmpeg -y -loglevel warning -i pot-retrieval/kino.mp4 -vf fps=1 pot-retrieval/coarse/f_%05d.jpg
+          python3 - <<'PY'
+          from pathlib import Path
+          import cv2, json
+          from kino_frame_calibration import detect_chambers, ball_circles
+          hits=[]
+          for p in sorted(Path('pot-retrieval/coarse').glob('f_*.jpg')):
+              sec=int(p.stem.split('_')[1])-1
+              im=cv2.imread(str(p))
+              if im is None: continue
+              best=None
+              for c in detect_chambers(im):
+                  n=len(ball_circles(im,c))
+                  if best is None or n>best['score']:
+                      best={'second':sec,'score':n,'chamber':[float(x) for x in c]}
+              if best and best['score']>=5:
+                  hits.append(best)
+          Path('pot-retrieval/coarse_hits.json').write_text(json.dumps(hits,indent=2))
+          print('COARSE_HITS',len(hits))
+          clusters=[]
+          if hits:
+              secs=[x['second'] for x in hits]
+              a=b=secs[0]
+              for s in secs[1:]:
+                  if s-b>4:
+                      clusters.append((a,b)); a=s
+                  b=s
+              clusters.append((a,b))
+          Path('pot-retrieval/clusters.json').write_text(json.dumps(clusters,indent=2))
+          print('CLUSTERS',clusters)
+          PY
+
+      - name: Upload retrieval diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kino-pot-retrieval
+          compression-level: 6
+          path: |
+            pot-retrieval/ytdlp_version.txt
+            pot-retrieval/probe.log
+            pot-retrieval/result.txt
+            pot-retrieval/chosen_id.txt
+            pot-retrieval/video_probe.json
+            pot-retrieval/coarse_hits.json
+            pot-retrieval/clusters.json
