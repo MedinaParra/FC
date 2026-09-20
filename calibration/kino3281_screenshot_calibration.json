@@ -1,0 +1,128 @@
+{
+  "schema": "KinoCFDDEM-v4.1-screenshot-calibration-result",
+  "draw": {
+    "number": 3281,
+    "date": "2026-09-18"
+  },
+  "source_set": [
+    {
+      "file": "10481.jpg",
+      "sha256": "2f4fb77e9565586abed62f0973da63ada7fa08320d939f740e6e9ba3cf42a85d"
+    },
+    {
+      "file": "10484.jpg",
+      "sha256": "b3c8caa4b5b451d2bcf088eb9c6a3cb80a2d10dbf6946ba63cd8a3e9bf75dc0b"
+    },
+    {
+      "file": "10486.jpg",
+      "sha256": "6a6ed487536ec773c0b18193c00d4f0e91ab2ec871621f8173b714bf4938eb0c"
+    },
+    {
+      "file": "10488.jpg",
+      "sha256": "cdee44db7df9b610f2cdbb2c69581a8ca96a332b0a7eb4851d06bdb8390ca275"
+    },
+    {
+      "file": "10490.jpg",
+      "sha256": "a4b70e33e00bfc068cc27f73b433c5e9e3761eae925c533c61a009ed1e9c1dee"
+    },
+    {
+      "file": "10492.jpg",
+      "sha256": "942d8e7cd55368a4916671bd4a7d5869ba9bb5c34c82ed37cd749568071162b3"
+    },
+    {
+      "file": "10494.jpg",
+      "sha256": "453fc6994e739ec7487b1c0fe0601fd652d7e448dc5cc8ac4677bdc92695446d"
+    },
+    {
+      "file": "10496.jpg",
+      "sha256": "b38f6f2384c15ea22ab6eba7b090677585efb20fa3dd29d699ddaa588294920b"
+    },
+    {
+      "file": "10498.jpg",
+      "sha256": "a35d601a6426163344a7f973681fcadbc41d11c6a447fe392d8919a11d236ab4"
+    },
+    {
+      "file": "10500.jpg",
+      "sha256": "16efd7dfd910fb665f93808e3ee49103a9dca21c65808f3166204ce18ae81a29"
+    }
+  ],
+  "geometry_subset": [
+    "10481.jpg",
+    "10484.jpg",
+    "10486.jpg"
+  ],
+  "reference_outer_chamber": {
+    "frame": "10481.jpg",
+    "center_x_px": 683.4000244140625,
+    "center_y_px": 382.20001220703125,
+    "radius_px": 282.8399963378906,
+    "diameter_px": 565.6799926757812
+  },
+  "ball_detection": {
+    "accepted_total": 15,
+    "radius_px_median": 19.600000381469727,
+    "radius_px_iqr": [
+      18.799999237060547,
+      20.75
+    ],
+    "frame_equal_weight_projected_outer_D_over_ball_d_median": 14.321012472804588,
+    "per_frame": [
+      {
+        "frame": "10481.jpg",
+        "n": 6,
+        "median_r_px": 20.350000381469727,
+        "median_d_px": 40.70000076293945,
+        "projected_D_over_d": 13.89877105827667
+      },
+      {
+        "frame": "10484.jpg",
+        "n": 6,
+        "median_r_px": 19.75,
+        "median_d_px": 39.5,
+        "projected_D_over_d": 14.321012472804588
+      },
+      {
+        "frame": "10486.jpg",
+        "n": 3,
+        "median_r_px": 19.299999237060547,
+        "median_d_px": 38.599998474121094,
+        "projected_D_over_d": 14.654922669363177
+      }
+    ],
+    "definition": "visible outer acrylic diameter / apparent clear-ball diameter in same fixed camera view"
+  },
+  "registration": [
+    {
+      "reference": "10481.jpg",
+      "frame": "10484.jpg",
+      "good_matches": 735,
+      "inliers": 636,
+      "scale": 1.0002424840362285,
+      "rotation_deg": -0.0005585901581681656,
+      "tx_px": -0.15639563743841806,
+      "ty_px": -0.15695230390671205,
+      "median_inlier_residual_px": 0.12660090400281365,
+      "mean_inlier_residual_px": 0.4449154029922189
+    },
+    {
+      "reference": "10481.jpg",
+      "frame": "10486.jpg",
+      "good_matches": 635,
+      "inliers": 549,
+      "scale": 1.0000786461986744,
+      "rotation_deg": -0.00891552903792831,
+      "tx_px": -0.18442510776735901,
+      "ty_px": -0.14622176238297147,
+      "median_inlier_residual_px": 0.2674293489163566,
+      "mean_inlier_residual_px": 0.5736866566860372
+    }
+  ],
+  "conclusions": {
+    "absolute_scale_identified": false,
+    "timestamps_available": false,
+    "velocity_calibration_possible": false,
+    "rotating_wall_default_status": "retired for v4.1 real-machine calibration",
+    "agitation_model": "unresolved non-wall forcing; forced-air remains a candidate, not a measured fact",
+    "legacy_rotating_wall": "retained only as a validated numerical surrogate/comparison case"
+  }
+}
