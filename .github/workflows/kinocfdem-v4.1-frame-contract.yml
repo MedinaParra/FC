@@ -1,0 +1,20 @@
+name: KinoCFDDEM v4.1 frame contract
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - 'kino_frame_calibration.py'
+      - 'tests/test_kino_frame_calibration.py'
+      - '.github/workflows/kinocfdem-v4.1-frame-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: python3 -m pip install --user pytest opencv-python-headless numpy pandas matplotlib
+      - name: Test frame calibration contract
+        run: PYTHONPATH=. pytest -q tests/test_kino_frame_calibration.py
