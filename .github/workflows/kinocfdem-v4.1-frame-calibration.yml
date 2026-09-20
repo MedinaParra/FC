@@ -23,19 +23,46 @@ jobs:
 
       - name: Download official Kino 3279 video
         run: |
+          set +e
           mkdir -p frame-calibration
-          python3 -m yt_dlp \
-            -f "bv*[height<=720]+ba/b[height<=720]" \
-            --merge-output-format mp4 \
-            -o "frame-calibration/kino3279.%(ext)s" \
-            "https://www.youtube.com/watch?v=DUY2JTgHvsQ"
+          URL="https://www.youtube.com/watch?v=DUY2JTgHvsQ"
+          rm -f frame-calibration/kino3279.*
+          ok=0
+          for CLIENT in web_embedded android_vr tv_simply web_safari; do
+            echo "TRY_CLIENT=$CLIENT"
+            python3 -m yt_dlp \
+              --js-runtimes node \
+              --extractor-args "youtube:player_client=$CLIENT;player_skip=webpage" \
+              -f "bv*[height<=720]+ba/b[height<=720]" \
+              --merge-output-format mp4 \
+              -o "frame-calibration/kino3279.%(ext)s" \
+              "$URL"
+            rc=$?
+            if [ $rc -eq 0 ] && [ -s frame-calibration/kino3279.mp4 ]; then
+              echo "DOWNLOAD_CLIENT=$CLIENT" | tee frame-calibration/download_method.txt
+              ok=1
+              break
+            fi
+            rm -f frame-calibration/kino3279.*
+          done
+          if [ $ok -ne 1 ]; then
+            echo "All public unauthenticated clients failed."
+            exit 1
+          fi
           ls -lh frame-calibration/
 
       - name: Record source metadata
         run: |
-          python3 -m yt_dlp --dump-single-json --skip-download \
-            "https://www.youtube.com/watch?v=DUY2JTgHvsQ" \
-            > frame-calibration/source_metadata.json
+          cat > frame-calibration/source_metadata.json <<'JSON'
+          {
+            "publisher": "Loteria de Concepcion",
+            "video_id": "DUY2JTgHvsQ",
+            "title": "Kino 3279 - Sunday, September 13, 2026",
+            "published": "2026-09-13",
+            "source_url": "https://www.youtube.com/watch?v=DUY2JTgHvsQ",
+            "retrieval": "public unauthenticated yt-dlp client; exact client in download_method.txt"
+          }
+          JSON
           ffprobe -v error -show_entries format=duration:stream=width,height,r_frame_rate,avg_frame_rate,codec_name \
             -of json frame-calibration/kino3279.mp4 \
             > frame-calibration/video_probe.json
@@ -71,6 +98,7 @@ jobs:
           compression-level: 6
           path: |
             frame-calibration/source_metadata.json
+            frame-calibration/download_method.txt
             frame-calibration/video_probe.json
             frame-calibration/frame-calibration.log
             frame-calibration/results/
