@@ -1,0 +1,39 @@
+name: Probe Kino alternate YouTube clients
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/probe-kino-alt-clients.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yt-dlp and PO provider
+        run: |
+          python3 -m pip install --user -U yt-dlp bgutil-ytdlp-pot-provider
+          docker pull brainicism/bgutil-ytdlp-pot-provider:latest
+          docker run --name bgutil-provider -d --init -p 127.0.0.1:4416:4416 brainicism/bgutil-ytdlp-pot-provider:latest
+          sleep 5
+      - name: Probe alternate clients
+        run: |
+          set +e
+          mkdir -p alt-client-probe
+          id=DUY2JTgHvsQ
+          for client in web_safari web_embedded android_vr tv tv_simply ios android; do
+            echo "===== CLIENT=$client =====" | tee -a alt-client-probe/probe.log
+            python3 -m yt_dlp -v -F --js-runtimes node \
+              --extractor-args "youtube:player_client=$client" \
+              "https://www.youtube.com/watch?v=$id" \
+              >> alt-client-probe/probe.log 2>&1
+            echo "RC=$?" | tee -a alt-client-probe/probe.log
+          done
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kino-alt-client-probe
+          path: alt-client-probe/
