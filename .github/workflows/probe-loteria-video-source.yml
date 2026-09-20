@@ -1,0 +1,33 @@
+name: Probe Loteria official video source
+
+on:
+  push:
+    branches: [kinodem-cfdem-v4.1-video-calibration]
+    paths:
+      - '.github/workflows/probe-loteria-video-source.yml'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch official draw page
+        run: |
+          set -euxo pipefail
+          mkdir -p loteria-source-probe
+          URL="https://loteria.cl/SorteosEnVivo/home/verVideo/3/3279/"
+          curl -L --fail --max-time 60 \
+            -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36" \
+            -D loteria-source-probe/headers.txt \
+            -o loteria-source-probe/page.html "$URL"
+          printf '%s\n' "$URL" > loteria-source-probe/url.txt
+          grep -Eio '<iframe[^>]*>|https?://[^"''' <]+' loteria-source-probe/page.html \
+            > loteria-source-probe/extracted_urls.txt || true
+          cat loteria-source-probe/extracted_urls.txt
+          wc -c loteria-source-probe/page.html
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: loteria-kino3279-source-probe
+          path: loteria-source-probe/
