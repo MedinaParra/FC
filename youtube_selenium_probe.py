@@ -9,7 +9,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 
 
-def driver():
+def make_driver():
     o=Options()
     o.add_argument("--headless=new")
     o.add_argument("--no-sandbox")
@@ -22,6 +22,85 @@ def driver():
     return webdriver.Chrome(options=o)
 
 
+def player_duration(d):
+    return d.execute_script("""
+      let p=document.getElementById('movie_player');
+      if (p && typeof p.getDuration==='function') {
+        let z=p.getDuration(); if (isFinite(z) && z>0) return z;
+      }
+      let v=document.querySelector('video');
+      if (v && isFinite(v.duration) && v.duration>0) return v.duration;
+      return 0;
+    """)
+
+
+def current_time(d):
+    return float(d.execute_script("""
+      let p=document.getElementById('movie_player');
+      if (p && typeof p.getCurrentTime==='function') return p.getCurrentTime()||0;
+      let v=document.querySelector('video'); return v ? (v.currentTime||0) : 0;
+    """))
+
+
+def try_host(d, host, video_id, out):
+    url=f"https://{host}/embed/{video_id}?autoplay=1&mute=1&controls=1&rel=0"
+    d.get(url)
+    WebDriverWait(d,20).until(lambda x:
+        x.execute_script("return !!document.getElementById('movie_player') || !!document.querySelector('video')"))
+
+    # Always preserve diagnostics before deciding whether playback works.
+    d.save_screenshot(str(out/f"page_{host.replace('.','_')}.png"))
+    (out/f"body_{host.replace('.','_')}.txt").write_text(
+        d.find_element("tag name","body").text,encoding="utf-8",errors="replace")
+
+    # Trigger muted playback through both APIs.
+    d.execute_script("""
+      let p=document.getElementById('movie_player');
+      if (p) { try { p.mute(); p.playVideo(); } catch(e) {} }
+      let v=document.querySelector('video');
+      if (v) { v.muted=true; try { v.play(); } catch(e) {} }
+    """)
+    deadline=time.time()+30
+    duration=0
+    while time.time()<deadline:
+        duration=float(player_duration(d) or 0)
+        if duration>0:
+            break
+        time.sleep(0.5)
+    if duration<=0:
+        return None
+
+    # Pause after media metadata becomes available.
+    d.execute_script("""
+      let p=document.getElementById('movie_player');
+      if (p) { try { p.pauseVideo(); } catch(e) {} }
+      let v=document.querySelector('video'); if (v) v.pause();
+    """)
+    return {"url":url,"duration":duration}
+
+
+def seek(d,t):
+    d.execute_script("""
+      let t=arguments[0];
+      let p=document.getElementById('movie_player');
+      if (p && typeof p.seekTo==='function') {
+        try { p.mute(); p.seekTo(t,true); } catch(e) {}
+      } else {
+        let v=document.querySelector('video'); if (v) { v.muted=true; v.currentTime=t; }
+      }
+    """,float(t))
+    deadline=time.time()+8
+    while time.time()<deadline:
+        if abs(current_time(d)-t)<0.8:
+            break
+        time.sleep(0.1)
+    time.sleep(0.4)
+    d.execute_script("""
+      let p=document.getElementById('movie_player'); if (p) { try { p.pauseVideo(); } catch(e) {} }
+      let v=document.querySelector('video'); if (v) v.pause();
+    """)
+
+
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--video-id",required=True)
@@ -30,40 +109,42 @@ def main():
     args=ap.parse_args()
     out=Path(args.outdir); out.mkdir(parents=True,exist_ok=True)
 
-    d=driver()
+    d=make_driver()
     try:
-        url=f"https://www.youtube.com/embed/{args.video_id}?autoplay=1&mute=1&controls=1&rel=0"
-        d.get(url)
-        wait=WebDriverWait(d,30)
-        wait.until(lambda x: x.execute_script("return !!document.querySelector('video')"))
-        wait.until(lambda x: x.execute_script("let v=document.querySelector('video'); return v && isFinite(v.duration) && v.duration>0"))
-        meta=d.execute_script("""
-            let v=document.querySelector('video');
-            return {duration:v.duration, width:v.videoWidth, height:v.videoHeight,
-                    readyState:v.readyState, paused:v.paused, currentTime:v.currentTime};
-        """)
-        duration=float(meta["duration"])
+        chosen=None
+        for host in ("www.youtube-nocookie.com","www.youtube.com"):
+            try:
+                chosen=try_host(d,host,args.video_id,out)
+            except Exception as exc:
+                (out/f"error_{host.replace('.','_')}.txt").write_text(repr(exc),encoding="utf-8")
+                chosen=None
+            if chosen:
+                chosen["host"]=host
+                break
+        if not chosen:
+            raise RuntimeError("No public embed host produced a playable duration; diagnostics saved")
+
+        duration=float(chosen["duration"])
         times=[duration*i/(args.n-1) for i in range(args.n)] if args.n>1 else [0]
         rows=[]
         for i,t in enumerate(times):
-            d.execute_script("let v=document.querySelector('video'); v.pause(); v.currentTime=arguments[0];",float(t))
-            wait.until(lambda x,tt=t: abs(float(x.execute_script("return document.querySelector('video').currentTime"))-tt)<0.5)
-            time.sleep(0.35)
-            v=d.find_element("tag name","video")
-            p=out/f"probe_{i:03d}_{t:08.3f}s.png"
-            v.screenshot(str(p))
-            st=d.execute_script("""
-                let v=document.querySelector('video');
-                return {currentTime:v.currentTime,readyState:v.readyState,networkState:v.networkState,
-                        width:v.videoWidth,height:v.videoHeight};
-            """)
-            rows.append({"index":i,"requested_s":t,"file":p.name,**st})
+            seek(d,t)
+            p=d.find_element("id","movie_player")
+            path=out/f"probe_{i:03d}_{t:08.3f}s.png"
+            p.screenshot(str(path))
+            rows.append({
+                "index":i,"requested_s":t,"actual_s":current_time(d),"file":path.name
+            })
 
-        (out/"probe_metadata.json").write_text(json.dumps({
-            "video_id":args.video_id,"embed_url":url,"video":meta,"frames":rows
-        },indent=2)+"\n",encoding="utf-8")
+        meta={
+            "video_id":args.video_id,
+            "host":chosen["host"],
+            "embed_url":chosen["url"],
+            "duration_s":duration,
+            "frames":rows
+        }
+        (out/"probe_metadata.json").write_text(json.dumps(meta,indent=2)+"\n",encoding="utf-8")
 
-        # Contact sheet, with requested time label.
         imgs=[]
         for r in rows:
             im=Image.open(out/r["file"]).convert("RGB")
@@ -78,7 +159,7 @@ def main():
         for i,im in enumerate(imgs):
             sheet.paste(im,((i%cols)*420,(i//cols)*275))
         sheet.save(out/"contact_sheet.jpg",quality=90)
-        print(json.dumps({"duration_s":duration,"captures":len(rows),"video_meta":meta},indent=2))
+        print(json.dumps({"duration_s":duration,"captures":len(rows),"host":chosen["host"]},indent=2))
     finally:
         d.quit()
 
