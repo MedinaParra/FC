@@ -18,6 +18,7 @@ jobs:
         run: python3 -m pip install --user selenium pillow
       - name: Probe official video frames in Chrome
         run: |
+          set -o pipefail
           mkdir -p youtube-probe
           python3 youtube_selenium_probe.py \
             --video-id DUY2JTgHvsQ \
