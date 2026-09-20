@@ -27,3 +27,4 @@ jobs:
           assert p['machine_calibration']['wall_motion']=='stationary'
           print(json.dumps(p['machine_calibration'],indent=2))
           PY
+# contract refresh after v4 manifest compatibility fix
