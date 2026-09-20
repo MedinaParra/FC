@@ -481,14 +481,6 @@ if [ -z "${CFDEM_SRC_DIR:-}" ]; then
 fi
 
 : "${CFDEM_SRC_DIR:?CFDEM environment is not loaded}"
-if [ -f "$CFDEM_SRC_DIR/lagrangian/cfdemParticle/etc/functions.sh" ]; then
-    source "$CFDEM_SRC_DIR/lagrangian/cfdemParticle/etc/functions.sh"
-elif [ -f "${CFDEM_PROJECT_DIR:-}/etc/functions.sh" ]; then
-    source "$CFDEM_PROJECT_DIR/etc/functions.sh"
-else
-    echo "CFDEM functions.sh not found" >&2
-    exit 2
-fi
 casePath="$(cd "$(dirname "$0")" && pwd)"
 
 cd "$casePath/CFD"
@@ -497,12 +489,15 @@ snappyHexMesh -overwrite
 checkMesh
 decomposePar -force
 
-cd "$casePath"
-parCFDDEMrun "$casePath" "log_kinodem_cfdem" "$casePath" \
-    "kinodem_cfdem_twoWayMPI" "cfdemSolverIB" "4" "none" "off" \
-    "false" "false" "false" "false"
+# Direct MPI launch is more robust across CFDEM-PUBLIC and CFDEM-PFM than
+# the legacy parCFDDEMrun shell wrapper. twoWayMPI is still configured in
+# constant/couplingProperties and starts the embedded LIGGGHTS library.
+MPIRUN_CMD="mpirun"
+if mpirun -version 2>/dev/null | grep -q "Open MPI"; then
+    MPIRUN_CMD="mpirun -oversubscribe"
+fi
+$MPIRUN_CMD -np 4 cfdemSolverIB -parallel 2>&1 | tee "$casePath/log_kinodem_cfdem"
 
-cd "$casePath/CFD"
 reconstructPar -latestTime || true
 foamToVTK -latestTime || true
 """)
