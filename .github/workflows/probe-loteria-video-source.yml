@@ -12,20 +12,28 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch official draw page
+      - name: Fetch official draw page and public scripts
         run: |
           set -euxo pipefail
           mkdir -p loteria-source-probe
-          URL="https://loteria.cl/SorteosEnVivo/home/verVideo/3/3279/"
-          curl -k -L --fail --max-time 60 \
-            -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36" \
-            -D loteria-source-probe/headers.txt \
-            -o loteria-source-probe/page.html "$URL"
+          UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36"
+          BASE="https://loteria.cl/sorteosenvivo"
+          URL="$BASE/home/verVideo/3/3279/"
+          curl -k -L --fail --max-time 60 -A "$UA" -D loteria-source-probe/headers.txt -o loteria-source-probe/page.html "$URL"
           printf '%s\n' "$URL" > loteria-source-probe/url.txt
-          grep -Eio '<iframe[^>]*>|https?://[^"''' <]+' loteria-source-probe/page.html \
-            > loteria-source-probe/extracted_urls.txt || true
-          cat loteria-source-probe/extracted_urls.txt
-          wc -c loteria-source-probe/page.html
+          for P in scripts/main.js Content/js/funciones.js Content/js/lunametrics-youtube.gtm.js; do
+            out=$(echo "$P" | tr '/' '_')
+            curl -k -L --fail --max-time 60 -A "$UA" "$BASE/$P?idrnd=64356" -o "loteria-source-probe/$out" || true
+          done
+          python3 - <<'PY'
+          import re,glob
+          for fn in ["loteria-source-probe/page.html"]+glob.glob("loteria-source-probe/*js"):
+              print("\n===== ",fn," =====")
+              txt=open(fn,errors="replace").read()
+              for i,line in enumerate(txt.splitlines(),1):
+                  if re.search(r'iframe|youtube|ajax|video|verVideo|sorteo|consulta|url:',line,re.I):
+                      print(f"{i}: {line[:500]}")
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
